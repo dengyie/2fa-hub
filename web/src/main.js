@@ -2,7 +2,7 @@ import { createApp } from 'vue';
 import App from './App.vue';
 import { router } from './router.js';
 import { store, initSession } from './store.js';
-import './style.css';
+import './main.css';
 
 // 启动时静默探测会话，决定路由可用性
 await initSession();

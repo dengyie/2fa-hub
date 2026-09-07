@@ -30,6 +30,10 @@ export const config = {
   registerMode: process.env.REGISTER_MODE || 'open',
   inviteCode: process.env.INVITE_CODE || '',
   cookieSecure: process.env.COOKIE_SECURE !== '0',
+  // 前后端分离部署时：cookie 跨站需 SameSite=None（且 Secure=1）
+  cookieSameSite: process.env.COOKIE_SAMESITE || 'Strict',
+  // 前后端分离部署时：允许的前端来源（逗号分隔的精确 origin，如 https://2fa.example.com）
+  allowedOrigins: (process.env.ALLOWED_ORIGINS || '').split(',').map((s) => s.trim()).filter(Boolean),
   staticDir: process.env.STATIC_DIR || path.resolve(process.cwd(), 'web/dist'),
   bodyLimit: 1024 * 1024,
 };

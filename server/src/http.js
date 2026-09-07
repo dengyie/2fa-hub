@@ -1,7 +1,9 @@
-// 极简路由框架：方法+路径匹配、JSON body 解析、统一错误处理、静态文件 + SPA 回退。
+// 极简路由框架：方法+路径匹配、JSON body 解析、统一错误处理、CORS、静态文件 + SPA 回退。
 import { createServer } from 'node:http';
+import { existsSync } from 'node:fs';
 import { readFile, stat } from 'node:fs/promises';
 import { extname, join, normalize } from 'node:path';
+import { config } from './config.js';
 
 export class HttpError extends Error {
   constructor(status, message) {
@@ -74,11 +76,13 @@ function readBody(req, limit) {
 }
 
 function securityHeaders() {
+  // 跨域前端需要被授权使用摄像头（扫码）
+  const cameraAllow = ['(self)', ...config.allowedOrigins].join(' ');
   return {
     'X-Content-Type-Options': 'nosniff',
     'X-Frame-Options': 'DENY',
     'Referrer-Policy': 'no-referrer',
-    'Permissions-Policy': 'camera=(self), geolocation=()',
+    'Permissions-Policy': `camera=${cameraAllow}, geolocation=()`,
     'Content-Security-Policy':
       "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; " +
       "img-src 'self' data: blob:; connect-src 'self'; media-src 'self' blob:; " +
@@ -86,11 +90,35 @@ function securityHeaders() {
   };
 }
 
-/** 创建 HTTP 服务：API 交给 router，其余按静态文件处理（SPA 回退 index.html） */
+/** CORS：仅白名单 origin；携带 cookie 需 echo 具体 origin + Allow-Credentials */
+function applyCors(req, headers) {
+  const origin = req.headers.origin;
+  if (!origin || !config.allowedOrigins.includes(origin)) return false;
+  headers['Access-Control-Allow-Origin'] = origin;
+  headers['Access-Control-Allow-Credentials'] = 'true';
+  headers['Vary'] = 'Origin';
+  return true;
+}
+
+/** 创建 HTTP 服务：API 交给 router；配置了 STATIC_DIR 时附带静态托管（SPA 回退），否则纯 API */
 export function createAppServer(router, { staticDir, bodyLimit }) {
+  const hasStatic = staticDir && existsSync(join(staticDir, 'index.html'));
+  if (staticDir && !hasStatic) {
+    console.log('[2fa-hub] 未找到前端构建产物（' + staticDir + '），以纯 API 模式运行');
+  }
   return createServer(async (req, res) => {
     const url = new URL(req.url, 'http://localhost');
     const headers = { ...securityHeaders() };
+    applyCors(req, headers);
+    // 预检请求短路
+    if (req.method === 'OPTIONS' && url.pathname.startsWith('/api/')) {
+      headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, PATCH, DELETE, OPTIONS';
+      headers['Access-Control-Allow-Headers'] = 'Content-Type, X-Requested-With, Authorization';
+      headers['Access-Control-Max-Age'] = '86400';
+      res.writeHead(204, headers);
+      res.end();
+      return;
+    }
     const ctx = {
       req, res,
       method: req.method,
@@ -122,8 +150,10 @@ export function createAppServer(router, { staticDir, bodyLimit }) {
         }
         await router.dispatch(ctx);
         if (!res.writableEnded) throw new HttpError(500, 'handler produced no response');
-      } else {
+      } else if (hasStatic) {
         await serveStatic(ctx, staticDir, headers);
+      } else {
+        throw new HttpError(404, 'API server only — frontend not bundled (build web/ and set STATIC_DIR)');
       }
     } catch (err) {
       const status = err instanceof HttpError ? err.status : 500;

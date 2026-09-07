@@ -2,6 +2,7 @@
 // 摄像头/图片扫码：jsQR 解码 otpauth:// 二维码
 import { ref, onMounted, onBeforeUnmount } from 'vue';
 import jsQR from 'jsqr';
+import UiIcon from './ui/UiIcon.vue';
 
 const emit = defineEmits(['decoded', 'cancel']);
 const error = ref('');
@@ -69,21 +70,25 @@ function stop() {
   cancelAnimationFrame(raf);
   stream?.getTracks().forEach((t) => t.stop());
 }
+
+const inputCls = 'w-full rounded-lg border border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-950 px-3 py-2 text-sm outline-none focus:border-blue-500 transition-colors';
 </script>
 
 <template>
-  <div class="overlay" @click.self="emit('cancel')">
-    <div class="modal">
-      <h3>扫描二维码</h3>
-      <video id="scan-video" ref="videoRef" muted playsinline></video>
-      <p class="scan-tip">对准 2FA 二维码，识别后自动填入</p>
-      <p class="error-text" v-if="error">{{ error }}</p>
-      <div class="field">
-        <label>或上传二维码图片</label>
-        <input type="file" accept="image/*" @change="onFile" />
+  <div class="fixed inset-0 z-[60] bg-black/60 flex items-start justify-center p-6 overflow-y-auto" @click.self="emit('cancel'); stop()">
+    <div class="w-full max-w-md rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-6">
+      <div class="flex items-center justify-between mb-4">
+        <h3 class="text-base font-semibold m-0 flex items-center gap-2"><UiIcon name="scan" size="17" />扫描二维码</h3>
+        <button class="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors" @click="emit('cancel'); stop()">
+          <UiIcon name="x" size="16" />
+        </button>
       </div>
-      <div class="modal-actions">
-        <button class="btn" @click="emit('cancel'); stop()">关闭</button>
+      <video ref="videoRef" muted playsinline class="w-full rounded-xl bg-black min-h-60"></video>
+      <p class="text-center text-[13px] text-zinc-500 dark:text-zinc-400 mt-2.5">对准 2FA 二维码，识别后自动填入</p>
+      <p class="text-[13px] text-red-600 dark:text-red-400 my-2" v-if="error">{{ error }}</p>
+      <div class="mt-3">
+        <label class="block text-xs text-zinc-500 dark:text-zinc-400 mb-1.5"><UiIcon name="image" size="12" class="inline-block align-[-1.5px] mr-1" />或上传二维码图片</label>
+        <input type="file" accept="image/*" :class="inputCls" @change="onFile" />
       </div>
     </div>
   </div>

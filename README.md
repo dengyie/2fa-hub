@@ -52,12 +52,35 @@ docker compose up -d
 # 服务端（Node >= 22.5，无需 npm install）
 cd server && npm start          # http://127.0.0.1:8000
 
-# 前端（热更新，代理 /api 到 8000）
+# 前端（热更新，代理 /api 到 8000；API_PROXY 可改后端地址）
 cd web && npm install && npm run dev
 
 # 测试（19 个用例，含 RFC 官方测试向量）
 cd server && npm test
 ```
+
+## 前后端分离部署
+
+服务端默认**纯 API 模式**（未找到 `web/dist` 时不托管静态文件）；同域单容器部署仍兼容（Docker 内已内置 dist）。
+
+前端单独部署到任意静态托管（Nginx / Cloudflare Pages / Vercel / GitHub Pages）：
+
+```bash
+cd web
+VITE_API_BASE=https://api.example.com npm run build   # 构建时指定后端 origin
+# 将 dist/ 发布到静态托管；SPA 路由需回退 index.html
+```
+
+后端需放开 CORS 与跨站 cookie：
+
+```env
+ALLOWED_ORIGINS=https://hub.example.com   # 前端 origin 白名单（逗号分隔）
+COOKIE_SAMESITE=None                      # 跨站 cookie（需同时 COOKIE_SECURE=1）
+COOKIE_SECURE=1
+```
+
+- CORS 仅精确白名单命中才回 `Access-Control-Allow-Origin`（带 credentials）
+- 摄像头扫码权限自动随白名单下放（`Permissions-Policy: camera=(self) <origins>`）
 
 ## ⚠️ 备份
 
@@ -70,19 +93,24 @@ cd server && npm test
 
 ## 架构
 
+前后端完全分离：服务端是纯 JSON API（可选附带静态托管），前端是独立 Vue 3 SPA，可独立开发、构建、部署。
+
 ```
 ├── shared/          # base32 / TOTP-HOTP / otpauth URI（前后端共用，RFC 向量测试）
-├── server/          # Node 原生 ESM，零运行时依赖
-│   ├── src/         # config / crypto(AES-GCM+scrypt+HMAC) / db(SQLite) / http(路由+静态) / limiter
+├── server/          # Node 原生 ESM，零运行时依赖 —— 纯 JSON API（CORS 白名单）
+│   ├── src/         # config / crypto(AES-GCM+scrypt+HMAC) / db(SQLite) / http(路由+CORS) / limiter
 │   │   └── routes/  # auth / entries / admin
 │   └── test/        # node:test 集成测试 + RFC 向量
-├── web/             # Vue 3 + Vite SPA（无重型框架依赖）
+├── web/             # Vue 3 + Vite + Tailwind CSS v4 SPA（独立部署）
 │   └── src/
-│       ├── views/   # 登录 / 云端保险库 / 本地保险库 / 管理面板
+│       ├── views/       # 登录 / 云端保险库 / 本地保险库 / 管理面板
 │       ├── components/  # OtpCard / EntryModal / ScannerModal(jsQR) / ImportModal
-│       └── lib/     # localvault(WebCrypto) / formats(导入导出) / useVault
-└── Dockerfile       # 多阶段构建，单容器
+│       ├── components/ui/  # awesome-ui 标准组件（UiIcon / ThemeToggle / StatusIndicator）
+│       └── lib/         # localvault(WebCrypto) / formats(导入导出) / useVault
+└── Dockerfile       # 多阶段构建，单容器（API + 内置 dist）
 ```
+
+UI 基于 [awesome-ui](https://github.com/dengyie/awesome-ui) 标准组件装配：全局图标统一走 `UiIcon`（Tabler 规范几何），主题切换 `ThemeToggle`（亮/暗/跟随系统），管理面板健康徽章 `StatusIndicator`。
 
 ## 设计决策
 
@@ -92,6 +120,7 @@ cd server && npm test
 | 服务端 secret 加密落盘但 API 返回明文 | 出码在前端的必然要求，靠 TLS + cookie 安全传输；端到端加密在路线图 |
 | Node 原生依赖零化 | 2FA 工具自身必须是最小攻击面；供应链风险归零 |
 | 加密不可关闭 | 2FAuth 的教训——可选加密 + 静默降级是安全坑 |
+| 前后端分离 + CORS 白名单 | 前端可上 CDN/静态托管，后端可独立加固、独立伸缩；API-only 模式攻击面更小 |
 
 ## 路线图
 
