@@ -1,0 +1,20 @@
+services:
+  2fa-hub:
+    build: .
+    # image: ghcr.io/<your-org>/2fa-hub:latest   # 推广时替换为镜像地址
+    container_name: 2fa-hub
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8000:8000"   # 仅回环，交给反代（Caddy/nginx）暴露 HTTPS
+    environment:
+      # MASTER_KEY 不设置则首次启动自动生成到 /data/.master_key（务必备份该文件！）
+      # MASTER_KEY: <64位hex>
+      # REGISTER_MODE: open        # open | invite | closed
+      # INVITE_CODE: change-me
+      # TOKEN_TTL_DAYS: 14
+      COOKIE_SECURE: "1"          # 反代已提供 HTTPS 时保持 1
+    volumes:
+      - 2fa-hub-data:/data
+
+volumes:
+  2fa-hub-data:
