@@ -29,20 +29,20 @@ const base = `http://127.0.0.1:${server.address().port}`;
 function client() {
   let cookie = '';
   return {
-    async req(method, path, body) {
+    async req(method, path, body, { omitCsrfHeader = false } = {}) {
       const res = await fetch(base + path, {
         method,
         headers: {
           ...(body ? { 'Content-Type': 'application/json' } : {}),
           ...(cookie ? { Cookie: cookie } : {}),
-          'X-Requested-With': 'test',
+          ...(omitCsrfHeader ? {} : { 'X-Requested-With': 'test' }),
         },
         body: body ? JSON.stringify(body) : undefined,
       });
       const setCookie = res.headers.get('set-cookie');
       if (setCookie) cookie = setCookie.split(',')[0].split(';')[0];
       const json = res.headers.get('content-type')?.includes('json') ? await res.json() : null;
-      return { status: res.status, json };
+      return { status: res.status, json, setCookie };
     },
   };
 }
@@ -137,8 +137,22 @@ test('bulk import + reorder', async () => {
   assert.equal(imp.status, 201);
   const order = await c.req('PUT', '/api/entries-order', { ids: [3, 2, 1] });
   assert.equal(order.status, 200);
-  const list = await c.req('GET', '/api/entries');
+  const list = await c.req('GET', '/api/entries/full');
   assert.equal(list.json.entries[0].id, 3);
+  // 垃圾 id 拒绝
+  assert.equal((await c.req('PUT', '/api/entries-order', { ids: ['abc'] })).status, 400);
+  assert.equal((await c.req('PUT', '/api/entries-order', { ids: [] })).status, 400);
+});
+
+test('CSRF: mutating requests without X-Requested-With are rejected', async () => {
+  const c = client();
+  await c.req('POST', '/api/auth/login', { email: 'user@test.io', password: 'password456' });
+  const noHeader = await c.req('POST', '/api/entries/3/counter', {}, { omitCsrfHeader: true });
+  assert.equal(noHeader.status, 403);
+  const delNoHeader = await c.req('DELETE', '/api/entries/3', undefined, { omitCsrfHeader: true });
+  assert.equal(delNoHeader.status, 403);
+  // GET 不需要该头
+  assert.equal((await c.req('GET', '/api/entries/full', undefined, { omitCsrfHeader: true })).status, 200);
 });
 
 test('hotp counter advances server-side', async () => {
@@ -147,6 +161,43 @@ test('hotp counter advances server-side', async () => {
   const r = await c.req('POST', '/api/entries/3/counter', {});
   assert.equal(r.status, 200);
   assert.equal(r.json.counter, 3);
+});
+
+test('corrupted ciphertext is isolated, not fatal for whole vault', async () => {
+  const c = client();
+  await c.req('POST', '/api/auth/login', { email: 'user@test.io', password: 'password456' });
+  // 直接把一条密文写坏（模拟坏备份恢复 / MASTER_KEY 变更）
+  db.prepare('UPDATE entries SET secret = ? WHERE id = 3').run('v1.AAA.AAA.AAA');
+  const r = await c.req('GET', '/api/entries/full');
+  assert.equal(r.status, 200);
+  const broken = r.json.entries.find((e) => e.id === 3);
+  const good = r.json.entries.find((e) => e.id === 1);
+  assert.equal(broken.decrypt_error, true);
+  assert.equal(broken.secret, null);
+  assert.equal(good.secret, 'JBSWY3DPEHPK3PXP'); // 其余条目不受影响
+  // 损坏条目仍可删除（自愈路径）；补一条等价条目保持后续测试的条目数
+  assert.equal((await c.req('DELETE', '/api/entries/3')).status, 200);
+  await c.req('POST', '/api/entries/bulk', {
+    entries: [{ issuer: 'B', secret: 'JBSWY3DPEHPK3PXQ', type: 'hotp', counter: 3 }],
+  });
+  const after = await c.req('GET', '/api/entries/full');
+  assert.equal(after.json.entries.some((e) => e.decrypt_error), false);
+});
+
+test('change-password invalidates old sessions', async () => {
+  const c = client();
+  const reg = await c.req('POST', '/api/auth/register', { email: 'cp@test.io', password: 'password789' });
+  assert.equal(reg.status, 201);
+  // 旧密码校验失败拒绝
+  assert.equal((await c.req('POST', '/api/auth/change-password', { current: 'wrongwrong', next: 'password999' })).status, 401);
+  // 独立客户端持旧会话；主客户端改密后旧会话必须失效
+  const victim = client();
+  await victim.req('POST', '/api/auth/login', { email: 'cp@test.io', password: 'password789' });
+  assert.equal((await c.req('POST', '/api/auth/change-password', { current: 'password789', next: 'password999' })).status, 200);
+  assert.equal((await victim.req('GET', '/api/me')).status, 401);
+  // 新密码可登录、旧密码被拒
+  assert.equal((await client().req('POST', '/api/auth/login', { email: 'cp@test.io', password: 'password999' })).status, 200);
+  assert.equal((await client().req('POST', '/api/auth/login', { email: 'cp@test.io', password: 'password789' })).status, 401);
 });
 
 test('admin: disable user -> session rejected; reset password works', async () => {
@@ -205,7 +256,7 @@ test('audit log records security events', async () => {
 });
 
 test('unauthenticated access to entries rejected', async () => {
-  assert.equal((await client().req('GET', '/api/entries')).status, 401);
+  assert.equal((await client().req('GET', '/api/entries/full')).status, 401);
   assert.equal((await client().req('GET', '/api/admin/users')).status, 401);
 });
 

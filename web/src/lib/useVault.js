@@ -14,12 +14,14 @@ export function useVault(backend) {
   const search = ref('');
   const ready = ref(false);
   const toast = ref('');
+  const toastError = ref(false);
   let toastTimer = 0;
 
-  function showToast(msg) {
+  function showToast(msg, isError = false) {
     toast.value = msg;
+    toastError.value = isError;
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => (toast.value = ''), 1600);
+    toastTimer = setTimeout(() => (toast.value = ''), isError ? 3200 : 1600);
   }
 
   const filtered = computed(() => {
@@ -34,18 +36,32 @@ export function useVault(backend) {
     ready.value = true;
   }
 
+  // 所有变更操作的失败必须反馈给用户，禁止静默吞错（本地模式保存失败 = 数据丢失风险）
+  async function run(fn, okMsg) {
+    try {
+      await fn();
+      if (okMsg) showToast(okMsg);
+      return true;
+    } catch (err) {
+      showToast(`操作失败：${err.message}`, true);
+      return false;
+    }
+  }
+
   async function saveEntry(data) {
-    if (data.id) await backend.update(data);
-    else await backend.add(data);
-    await reload();
-    showToast(data.id ? '已保存' : '已添加');
+    await run(async () => {
+      if (data.id) await backend.update(data);
+      else await backend.add(data);
+      await reload();
+    }, data.id ? '已保存' : '已添加');
   }
 
   async function removeEntry(e) {
     if (!confirm(`删除「${e.issuer || e.label}」？删除后无法恢复。`)) return;
-    await backend.remove(e);
-    await reload();
-    showToast('已删除');
+    await run(async () => {
+      await backend.remove(e);
+      await reload();
+    }, '已删除');
   }
 
   async function move(e, dir) {
@@ -54,14 +70,16 @@ export function useVault(backend) {
     const j = i + dir;
     if (j < 0 || j >= list.length) return;
     [list[i], list[j]] = [list[j], list[i]];
-    await backend.reorder(list);
-    await reload();
+    await run(async () => {
+      await backend.reorder(list);
+      await reload();
+    });
   }
 
   async function advanceHotp(e) {
     e.counter = (Number(e.counter) || 0) + 1;
-    await backend.advanceHotp(e);
+    await run(() => backend.advanceHotp(e));
   }
 
-  return { entries, filtered, search, ready, toast, showToast, reload, saveEntry, removeEntry, move, advanceHotp };
+  return { entries, filtered, search, ready, toast, toastError, showToast, run, reload, saveEntry, removeEntry, move, advanceHotp };
 }

@@ -42,6 +42,30 @@ jobs:
           path: web/dist/
           retention-days: 7
 
+  docker-smoke:
+    name: Docker image smoke test (run + curl)
+    runs-on: ubuntu-latest
+    needs: [server-tests, web-build]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build image
+        run: docker build -t 2fa-hub:smoke .
+      - name: Run container & probe
+        run: |
+          docker run -d --name smoke -p 127.0.0.1:8123:8000 2fa-hub:smoke
+          for i in $(seq 1 20); do
+            if curl -sf http://127.0.0.1:8123/api/health | grep -q '"ok":true'; then ok=1; break; fi
+            sleep 1
+          done
+          [ "$ok" = 1 ] || { docker logs smoke; exit 1; }
+          # SPA 首页 + 登录页回退 + 注册 API（验证写入 /data 权限正常）
+          curl -sf -o /dev/null http://127.0.0.1:8123/ 
+          curl -sf -o /dev/null http://127.0.0.1:8123/vault
+          curl -sf -X POST http://127.0.0.1:8123/api/auth/register \
+            -H 'Content-Type: application/json' -H 'X-Requested-With: smoke' \
+            -d '{"email":"smoke@test.io","password":"password123"}' | grep -q '"is_admin":true'
+          echo "smoke ok"
+
   docker:
     name: Docker build & publish (GHCR)
     # PR 只构建不发布；push 到 main 或打 v* tag 才发布

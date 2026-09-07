@@ -14,7 +14,15 @@ async function deriveKey(passphrase, salt) {
 }
 
 const b64 = {
-  enc: (buf) => btoa(String.fromCharCode(...new Uint8Array(buf))),
+  // 分块转换：spread 展开大 buffer 会栈溢出（本地库可以长到几百 KB）
+  enc(buf) {
+    const bytes = new Uint8Array(buf);
+    let bin = '';
+    for (let i = 0; i < bytes.length; i += 0x8000) {
+      bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+    }
+    return btoa(bin);
+  },
   dec: (str) => Uint8Array.from(atob(str), (c) => c.charCodeAt(0)),
 };
 

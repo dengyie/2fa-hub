@@ -8,11 +8,13 @@ import { normalizeBase32 } from '../../../shared/base32.js';
 import { ALGORITHMS, clampDigits, clampPeriod } from '../../../shared/otp.js';
 
 function entryRow(e) {
+  // e.secret_plain 为解密后的明文；解密失败的条目以 decrypt_error 标记（见 /full 的单条隔离）
   return {
     id: e.id, label: e.label, issuer: e.issuer, secret: e.secret_plain,
     type: e.type, algorithm: e.algorithm, digits: e.digits,
     period: e.period, counter: e.counter, sort: e.sort,
     created_at: e.created_at, updated_at: e.updated_at,
+    ...(e.decrypt_error ? { decrypt_error: true } : {}),
   };
 }
 
@@ -40,15 +42,19 @@ function getOwnedEntry(ctx) {
 }
 
 export function registerEntryRoutes(router) {
-  router.get('/api/entries', authRequired, async (ctx) => {
-    const rows = db.prepare('SELECT * FROM entries WHERE user_id = ? ORDER BY sort, id').all(ctx.user.id);
-    ctx.json(200, { entries: rows.map((e) => ({ ...entryRow(e), secret_plain: undefined })) });
-  });
-
-  // 明文列表（含 secret）：登录后首次加载时取一次，用于前端出码
+  // 明文列表（含 secret）：登录后加载，用于前端出码；单条解密失败不拖垮整个库
   router.get('/api/entries/full', authRequired, async (ctx) => {
     const rows = db.prepare('SELECT * FROM entries WHERE user_id = ? ORDER BY sort, id').all(ctx.user.id);
-    ctx.json(200, { entries: rows.map((e) => entryRow({ ...e, secret_plain: decryptEntry(e) })) });
+    const entries = rows.map((e) => {
+      try {
+        return entryRow({ ...e, secret_plain: decryptEntry(e) });
+      } catch {
+        // 密文损坏（如从坏备份恢复/MASTER_KEY 变更）：标记该条目而不是 500 全库，用户可在 UI 删除
+        audit(ctx.user.id, 'entry_decrypt_error', `id=${e.id}`, ctx.ip, ctx.ua);
+        return entryRow({ ...e, secret_plain: null, decrypt_error: true });
+      }
+    });
+    ctx.json(200, { entries });
   });
 
   router.post('/api/entries', authRequired, async (ctx) => {
@@ -107,11 +113,16 @@ export function registerEntryRoutes(router) {
 
   router.put('/api/entries-order', authRequired, async (ctx) => {
     const ids = Array.isArray(ctx.body?.ids) ? ctx.body.ids.map(Number) : [];
-    if (!ids.length) throw new HttpError(400, 'ids required');
+    if (!ids.length || ids.some((n) => !Number.isInteger(n))) throw new HttpError(400, 'valid ids array required');
     const upd = db.prepare('UPDATE entries SET sort = ? WHERE id = ? AND user_id = ?');
     db.exec('BEGIN');
-    ids.forEach((id, i) => upd.run(i + 1, id, ctx.user.id));
-    db.exec('COMMIT');
+    try {
+      ids.forEach((id, i) => upd.run(i + 1, id, ctx.user.id));
+      db.exec('COMMIT');
+    } catch (err) {
+      db.exec('ROLLBACK');
+      throw new HttpError(500, `reorder failed: ${err.message}`);
+    }
     ctx.json(200, { ok: true });
   });
 

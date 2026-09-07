@@ -53,6 +53,24 @@ async function patch(u, body) {
   }
 }
 
+async function toggleActive(u) {
+  const action = u.is_active ? '禁用' : '启用';
+  if (!confirm(`确定${action}用户 ${u.email}？${u.is_active ? '其所有会话将立即失效。' : ''}`)) return;
+  await patch(u, { is_active: !u.is_active });
+}
+
+async function toggleAdmin(u) {
+  const action = u.is_admin ? '取消管理员权限' : '授予管理员权限';
+  if (!confirm(`确定对 ${u.email} ${action}？`)) return;
+  await patch(u, { is_admin: !u.is_admin });
+}
+
+function fmtTime(utc) {
+  // SQLite datetime('now') 是 UTC，转换为本时区展示
+  const d = new Date(String(utc).replace(' ', 'T') + 'Z');
+  return isNaN(d) ? utc : d.toLocaleString();
+}
+
 async function resetPassword(u) {
   const pw = prompt(`为 ${u.email} 设置新密码（至少 8 位）：`);
   if (!pw) return;
@@ -90,7 +108,7 @@ const actionBtn = 'rounded-lg border border-zinc-300 dark:border-zinc-700 px-2.5
     <select v-model="registerMode" @change="setRegisterMode"
             class="rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2.5 py-2 text-sm outline-none focus:border-blue-500 transition-colors">
       <option value="open">注册：开放</option>
-      <option value="invite">注册：邀请码</option>
+      <option value="invite" disabled>注册：邀请码（需 env INVITE_CODE）</option>
       <option value="closed">注册：关闭</option>
     </select>
   </div>
@@ -126,8 +144,8 @@ const actionBtn = 'rounded-lg border border-zinc-300 dark:border-zinc-700 px-2.5
           </td>
           <td class="px-3 py-2.5">
             <div class="flex gap-1 flex-wrap">
-              <button :class="actionBtn" @click="patch(u, { is_active: !u.is_active })">{{ u.is_active ? '禁用' : '启用' }}</button>
-              <button :class="actionBtn" @click="patch(u, { is_admin: !u.is_admin })">{{ u.is_admin ? '取消管理' : '设为管理' }}</button>
+              <button :class="actionBtn" @click="toggleActive(u)">{{ u.is_active ? '禁用' : '启用' }}</button>
+              <button :class="actionBtn" @click="toggleAdmin(u)">{{ u.is_admin ? '取消管理' : '设为管理' }}</button>
               <button :class="actionBtn" @click="resetPassword(u)">重置密码</button>
               <button class="rounded-lg border border-red-500/40 text-red-600 dark:text-red-400 px-2.5 py-1 text-xs hover:bg-red-500/10 transition-colors" @click="removeUser(u)">删除</button>
             </div>
@@ -152,7 +170,7 @@ const actionBtn = 'rounded-lg border border-zinc-300 dark:border-zinc-700 px-2.5
       </thead>
       <tbody>
         <tr v-for="a in auditRows" :key="a.id" class="border-b border-zinc-100 dark:border-zinc-800/60 last:border-0">
-          <td class="px-3 py-2 whitespace-nowrap text-zinc-500 dark:text-zinc-400">{{ a.created_at }}</td>
+          <td class="px-3 py-2 whitespace-nowrap text-zinc-500 dark:text-zinc-400">{{ fmtTime(a.created_at) }}</td>
           <td class="px-3 py-2"><span class="rounded-full border border-zinc-300 dark:border-zinc-700 text-zinc-500 dark:text-zinc-400 px-1.5 py-px text-[10px]">{{ a.action }}</span></td>
           <td class="px-3 py-2">{{ a.user_email || '-' }}</td>
           <td class="px-3 py-2 text-zinc-500 dark:text-zinc-400 text-xs">{{ a.detail }} {{ a.ip && a.ip !== '::1' && a.ip !== '127.0.0.1' ? '· ' + a.ip : '' }}</td>

@@ -1,16 +1,17 @@
 // 认证路由：注册（首位用户自动管理员）/ 登录 / 登出 / 当前用户 / 改密
-import { db, getSetting, setSetting, audit } from '../db.js';
+import { db, getSetting, audit } from '../db.js';
 import { hashPassword, verifyPassword, signToken, verifyToken, sessionExpiry } from '../crypto.js';
 import { HttpError } from '../http.js';
 import { allow, reset } from '../limiter.js';
 import { config } from '../config.js';
 
-const COOKIE_NAME = 'otk_session';
+export const COOKIE_NAME = 'otk_session';
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export function cookieHeader(token, maxAgeSeconds) {
   const parts = [
-    `${COOKIE_NAME}=${token}`, 'Path=/', 'HttpOnly', 'SameSite=Strict',
+    `${COOKIE_NAME}=${token}`, 'Path=/', 'HttpOnly',
+    `SameSite=${config.cookieSameSite}`,
     `Max-Age=${maxAgeSeconds}`,
   ];
   if (config.cookieSecure) parts.push('Secure');
@@ -37,26 +38,33 @@ function effectiveRegisterMode() {
 
 export function registerAuthRoutes(router) {
   router.post('/api/auth/register', async (ctx) => {
-    const { email, name, password } = ctx.body || {};
-    if (!EMAIL_RE.test(String(email || ''))) throw new HttpError(400, 'invalid email');
+    const email = String(ctx.body?.email || '').trim();
+    const { name, password } = ctx.body || {};
+    if (!EMAIL_RE.test(email)) throw new HttpError(400, 'invalid email');
     if (!password || String(password).length < 8) throw new HttpError(400, 'password must be at least 8 characters');
-    const first = userCount() === 0;
     const mode = effectiveRegisterMode();
-    if (!first) {
+    // 首个用户豁免注册模式限制（否则 REGISTER_MODE=closed/invite 的全新实例无法初始化）
+    if (userCount() > 0) {
       if (mode === 'closed') throw new HttpError(403, 'registration is disabled');
       if (mode === 'invite') {
-        if (!ctx.body.invite_code || ctx.body.invite_code !== getSetting('invite_code', config.inviteCode)) {
-          throw new HttpError(403, 'invalid invite code');
-        }
+        // 邀请码只经环境变量配置（INVITE_CODE）；未配置时视为关闭注册，避免"锁死"假象
+        const expected = getSetting('invite_code', config.inviteCode);
+        if (!expected || ctx.body?.invite_code !== expected) throw new HttpError(403, 'invalid invite code');
       }
-      // open 模式下允许自由注册；注册后默认需管理员启用吗？——直接启用，保持简单
     }
     if (!allow(`register:${ctx.ip}`, 5, 3600_000)) throw new HttpError(429, 'too many attempts');
-    const dup = db.prepare('SELECT id FROM users WHERE email = ?').get(String(email));
-    if (dup) throw new HttpError(409, 'email already registered');
-    const info = db.prepare(
-      'INSERT INTO users (email, name, password_hash, is_admin) VALUES (?, ?, ?, ?)',
-    ).run(String(email).trim(), String(name || email.split('@')[0]).slice(0, 50), hashPassword(password), first ? 1 : 0);
+    if (db.prepare('SELECT id FROM users WHERE email = ?').get(email)) throw new HttpError(409, 'email already registered');
+    // 首位用户授予管理员必须在 INSERT 内原子判定，否则并发注册可产生多个管理员
+    let info;
+    try {
+      info = db.prepare(
+        `INSERT INTO users (email, name, password_hash, is_admin)
+         VALUES (?, ?, ?, (SELECT CASE WHEN COUNT(*) = 0 THEN 1 ELSE 0 END FROM users))`,
+      ).run(email, String(name || email.split('@')[0]).slice(0, 50), hashPassword(password));
+    } catch (err) {
+      if (String(err.message).includes('UNIQUE')) throw new HttpError(409, 'email already registered');
+      throw err;
+    }
     const user = db.prepare('SELECT * FROM users WHERE id = ?').get(info.lastInsertRowid);
     audit(user.id, 'register', `email=${user.email} admin=${user.is_admin}`, ctx.ip, ctx.ua);
     issueSession(ctx, user);
@@ -130,5 +138,3 @@ export function adminRequired(ctx) {
   authRequired(ctx);
   if (!ctx.user.is_admin) throw new HttpError(403, 'admin only');
 }
-
-export { setSetting };

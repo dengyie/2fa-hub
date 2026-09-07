@@ -106,12 +106,14 @@ async function wipe() {
 }
 
 async function doImport(list) {
-  const { entries } = await loadLocalVault(passphrase);
-  list.forEach((e) => entries.push({ ...e, id: Date.now() + entries.length }));
-  await saveLocalVault(entries, passphrase);
   importing.value = false;
-  await v.reload();
-  v.showToast(`已导入 ${list.length} 条`);
+  await v.run(async () => {
+    const { entries } = await loadLocalVault(passphrase);
+    list.forEach((e) => entries.push({ ...e, id: Date.now() + entries.length }));
+    await saveLocalVault(entries, passphrase);
+    await v.reload();
+    v.showToast(`已导入 ${list.length} 条`);
+  });
 }
 
 function doExport(kind) {
@@ -206,7 +208,13 @@ const btnGhost = 'flex items-center gap-1.5 rounded-lg border border-zinc-300 da
     @save="editing = null; v.saveEntry($event)" @cancel="editing = null" @toast="v.showToast" />
   <ImportModal v-if="importing" @import="doImport" @cancel="importing = false" />
 
-  <div class="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 rounded-lg border border-emerald-500/50 bg-white dark:bg-zinc-900 text-emerald-600 dark:text-emerald-400 px-4 py-2.5 text-sm shadow-lg" v-if="v.toast.value">
-    <span class="inline-flex items-center gap-1.5"><UiIcon name="check" size="14" />{{ v.toast.value }}</span>
+  <div class="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 rounded-lg border px-4 py-2.5 text-sm shadow-lg"
+       :class="v.toastError.value
+         ? 'border-red-500/50 bg-white dark:bg-zinc-900 text-red-600 dark:text-red-400'
+         : 'border-emerald-500/50 bg-white dark:bg-zinc-900 text-emerald-600 dark:text-emerald-400'"
+       v-if="v.toast.value">
+    <span class="inline-flex items-center gap-1.5">
+      <UiIcon :name="v.toastError.value ? 'circle-x' : 'check'" size="14" />{{ v.toast.value }}
+    </span>
   </div>
 </template>

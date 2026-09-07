@@ -2,7 +2,6 @@ import { reactive } from 'vue';
 
 export const store = reactive({
   user: null,
-  entries: [],      // 云端模式条目（含 secret，用于前端出码）
   bootstrap: { initialized: false, register_mode: 'open' },
 });
 

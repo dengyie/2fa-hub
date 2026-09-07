@@ -13,6 +13,8 @@ WORKDIR /app
 COPY server/ ./server/
 COPY shared/ ./shared/
 COPY --from=web /app/web/dist ./web/dist
+# VOLUME 挂载点由 Docker 以 root 创建，必须预建并交给 node 用户，否则首启 EACCES 崩溃循环
+RUN mkdir -p /data && chown -R node:node /data
 ENV NODE_ENV=production DATA_DIR=/data PORT=8000
 EXPOSE 8000
 VOLUME /data

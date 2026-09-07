@@ -21,6 +21,8 @@ let lastKey = '';
 watch(
   () => [props.now, props.entry.secret, props.entry.counter, props.entry.period, props.entry.algorithm, props.entry.digits],
   async () => {
+    // 解密失败的条目（服务端标记）不出码，仅保留删除入口
+    if (props.entry.decrypt_error) return;
     const period = props.entry.period || 30;
     // TOTP 的缓存 key 必须包含当前时间桶，否则换周期后验证码不会刷新
     const bucket = props.entry.type === 'totp'
@@ -46,7 +48,12 @@ const progress = computed(() =>
 );
 
 async function copy() {
-  await navigator.clipboard.writeText(code.value);
+  try {
+    await navigator.clipboard.writeText(code.value);
+  } catch {
+    emit('toast', '复制失败（浏览器限制，请手动选择复制）', true);
+    return;
+  }
   flash.value = true;
   setTimeout(() => (flash.value = false), 600);
   emit('toast', `已复制 ${code.value}`);
@@ -60,6 +67,21 @@ function initials() {
 
 <template>
   <div class="group flex items-center gap-3.5 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-4 py-3.5 transition-colors hover:border-zinc-300 dark:hover:border-zinc-700">
+    <!-- 密文损坏的条目：显式标记，只能删除（不能出码/编辑） -->
+    <template v-if="entry.decrypt_error">
+      <div class="w-10 h-10 shrink-0 rounded-lg flex items-center justify-center bg-red-500/10 text-red-600 dark:text-red-400">
+        <UiIcon name="circle-x" size="20" />
+      </div>
+      <div class="flex-1 min-w-0">
+        <div class="text-[15px] font-semibold">{{ entry.issuer || entry.label || '(未知条目)' }}</div>
+        <div class="text-xs text-red-600 dark:text-red-400 mt-0.5">无法解密（数据损坏或 MASTER_KEY 已变更），建议删除后重新添加</div>
+      </div>
+      <div class="shrink-0">
+        <button class="p-1.5 rounded-lg text-zinc-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors" title="删除" @click="emit('delete', entry)"><UiIcon name="trash" size="15" /></button>
+      </div>
+    </template>
+
+    <template v-else>
     <div class="w-10 h-10 shrink-0 rounded-lg flex items-center justify-center font-bold text-sm uppercase bg-blue-600/10 text-blue-600 dark:text-blue-400">
       {{ initials() }}
     </div>
@@ -92,5 +114,6 @@ function initials() {
       <button class="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors" title="编辑" @click="emit('edit', entry)"><UiIcon name="pencil" size="15" /></button>
       <button class="p-1.5 rounded-lg text-zinc-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors" title="删除" @click="emit('delete', entry)"><UiIcon name="trash" size="15" /></button>
     </div>
+    </template>
   </div>
 </template>

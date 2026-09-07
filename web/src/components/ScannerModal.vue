@@ -11,6 +11,7 @@ const videoRef = ref(null);
 let stream = null;
 let raf = 0;
 let canvasCtx = null;
+let cancelled = false;   // getUserMedia 未 resolve 时卸载组件，之后必须放弃并释放流
 
 onMounted(startCamera);
 onBeforeUnmount(stop);
@@ -20,12 +21,18 @@ async function startCamera() {
     stream = await navigator.mediaDevices.getUserMedia({
       video: { facingMode: 'environment' }, audio: false,
     });
+    if (cancelled) {
+      stream.getTracks().forEach((t) => t.stop());
+      stream = null;
+      return;
+    }
     videoRef.value.srcObject = stream;
     await videoRef.value.play();
     const canvas = document.createElement('canvas');
     canvasCtx = canvas.getContext('2d', { willReadFrequently: true });
     tick(canvas, videoRef.value);
   } catch (err) {
+    if (cancelled) return;
     error.value = `无法打开摄像头（${err.name}）。可改用下方上传二维码图片。`;
   }
 }
@@ -67,6 +74,7 @@ async function onFile(ev) {
 }
 
 function stop() {
+  cancelled = true;
   cancelAnimationFrame(raf);
   stream?.getTracks().forEach((t) => t.stop());
 }

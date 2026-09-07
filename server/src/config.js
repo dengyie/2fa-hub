@@ -7,8 +7,13 @@ mkdirSync(DATA_DIR, { recursive: true });
 // MASTER_KEY：数据加密与签名会话的根密钥（32 字节 hex）。
 // 未提供时自动生成并落盘 DATA_DIR/.master_key —— 备份数据库必须同时备份它，否则已加密 secret 无法解密。
 function loadMasterKey() {
-  if (process.env.MASTER_KEY && process.env.MASTER_KEY.trim().length >= 64) {
-    return process.env.MASTER_KEY.trim();
+  const fromEnv = process.env.MASTER_KEY && process.env.MASTER_KEY.trim();
+  // 非法 hex 会被 Buffer.from 静默截断成短密钥，必须启动期硬失败
+  if (fromEnv) {
+    if (!/^[0-9a-fA-F]{64}$/.test(fromEnv)) {
+      throw new Error('[2fa-hub] MASTER_KEY 必须是 64 位 hex（32 字节），当前值不合法，拒绝启动');
+    }
+    return fromEnv;
   }
   const keyFile = path.join(DATA_DIR, '.master_key');
   if (existsSync(keyFile)) return readFileSync(keyFile, 'utf8').trim();

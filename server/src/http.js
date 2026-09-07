@@ -139,6 +139,10 @@ export function createAppServer(router, { staticDir, bodyLimit }) {
     };
     try {
       if (ctx.path.startsWith('/api/')) {
+        // CSRF 防线：浏览器表单/no-cors fetch 无法携带自定义头（SameSite=None 跨站部署时的关键防护）
+        if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method) && !req.headers['x-requested-with']) {
+          throw new HttpError(403, 'missing X-Requested-With header');
+        }
         if (req.method !== 'GET' && req.method !== 'DELETE') {
           const raw = await readBody(req, bodyLimit);
           if (raw.length) {

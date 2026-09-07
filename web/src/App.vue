@@ -10,7 +10,6 @@ const route = router.currentRoute;
 async function logout() {
   await api('/api/auth/logout', { method: 'POST' }).catch(() => {});
   store.user = null;
-  store.entries = [];
   router.push('/login');
 }
 </script>
