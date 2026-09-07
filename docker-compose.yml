@@ -1,7 +1,7 @@
 services:
   2fa-hub:
     build: .
-    # image: ghcr.io/<your-org>/2fa-hub:latest   # 推广时替换为镜像地址
+    image: ghcr.io/dengyie/2fa-hub:latest  # 或改为 build: .
     container_name: 2fa-hub
     restart: unless-stopped
     ports:
