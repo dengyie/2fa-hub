@@ -1,9 +1,11 @@
-# otpocket —— 单容器部署：前端构建产物 + 零依赖 Node 服务端
+# 2fa-hub —— 单容器部署：前端构建产物 + 零依赖 Node 服务端
 FROM node:24-alpine AS web
 WORKDIR /app/web
 COPY web/package*.json ./
 RUN npm ci
 COPY web/ ./
+# vite 别名 @shared 指向 ../shared，需在 web 构建阶段一并带入
+COPY shared/ /app/shared/
 RUN npm run build
 
 FROM node:24-alpine
