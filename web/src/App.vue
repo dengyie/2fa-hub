@@ -17,7 +17,7 @@ async function logout() {
 
 <template>
   <header class="sticky top-0 z-10 bg-zinc-50/85 dark:bg-zinc-950/85 backdrop-blur border-b border-zinc-200/70 dark:border-zinc-800/70">
-    <div class="max-w-2xl mx-auto flex items-center gap-2 px-4 py-3">
+    <div class="max-w-7xl mx-auto flex items-center gap-3 px-4 sm:px-6 lg:px-8 py-3.5">
       <router-link class="text-lg font-bold tracking-tight mr-auto select-none" to="/">
         2fa<span class="text-blue-600 dark:text-blue-400">-hub</span>
       </router-link>
@@ -68,7 +68,7 @@ async function logout() {
       <ThemeToggle />
     </div>
   </header>
-  <main class="max-w-2xl mx-auto px-4 pb-24">
+  <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-24 pt-2">
     <router-view />
   </main>
 </template>

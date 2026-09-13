@@ -50,23 +50,23 @@ async function copyUri() {
 
 <template>
   <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs" @click.self="emit('close')">
-    <div class="w-full max-w-sm rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-5 shadow-xl text-center">
+    <div class="w-full max-w-md rounded-2xl sm:rounded-3xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-6 sm:p-7 shadow-2xl text-center">
       <!-- 头部 -->
       <div class="flex items-center justify-between mb-4">
-        <div class="flex items-center gap-1.5 text-sm font-semibold text-zinc-900 dark:text-zinc-100">
-          <UiIcon name="qr-code" size="16" class="text-blue-600 dark:text-blue-400" />
+        <div class="flex items-center gap-2 text-sm sm:text-base font-semibold text-zinc-900 dark:text-zinc-100">
+          <UiIcon name="qr-code" size="18" class="text-blue-600 dark:text-blue-400" />
           <span>2FA 导入二维码</span>
         </div>
-        <button class="p-1 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 rounded-md" @click="emit('close')">
+        <button class="p-1.5 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors" @click="emit('close')">
           <UiIcon name="x" size="16" />
         </button>
       </div>
 
       <!-- 二维码图像卡片 -->
-      <div class="inline-flex items-center justify-center p-3 rounded-xl bg-white border border-zinc-200 dark:border-zinc-700 shadow-xs mx-auto mb-3">
-        <img v-if="qrUrl" :src="qrUrl" alt="2FA QR Code" class="w-52 h-52 select-none" />
-        <div v-else class="w-52 h-52 flex items-center justify-center text-zinc-400">
-          <UiIcon name="loader" size="24" class="animate-spin" />
+      <div class="inline-flex items-center justify-center p-3 sm:p-4 rounded-2xl bg-white border border-zinc-200 dark:border-zinc-700 shadow-xs mx-auto mb-3.5">
+        <img v-if="qrUrl" :src="qrUrl" alt="2FA QR Code" class="w-56 h-56 sm:w-64 sm:h-64 select-none" />
+        <div v-else class="w-56 h-56 sm:w-64 sm:h-64 flex items-center justify-center text-zinc-400">
+          <UiIcon name="loader" size="28" class="animate-spin" />
         </div>
       </div>
 

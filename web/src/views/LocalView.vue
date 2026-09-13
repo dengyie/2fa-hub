@@ -209,7 +209,7 @@ const btnGhost = 'flex items-center gap-1.5 rounded-lg border border-zinc-300 da
       </button>
     </div>
 
-    <div class="flex flex-col gap-2.5" v-if="v.ready.value">
+    <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3.5 sm:gap-4" v-if="v.ready.value">
       <OtpCard
         v-for="e in v.filtered.value" :key="e.id" :entry="e" :now="now"
         :on-hotp-use="advanceAndSave"

@@ -249,40 +249,40 @@ function saveToVault() {
 </script>
 
 <template>
-  <div class="rounded-2xl border border-blue-500/20 bg-gradient-to-b from-blue-500/5 to-transparent dark:from-blue-500/10 dark:to-transparent p-4 transition-all">
+  <div class="rounded-2xl sm:rounded-3xl border border-blue-500/20 bg-gradient-to-b from-blue-500/5 to-transparent dark:from-blue-500/10 dark:to-transparent p-4 sm:p-6 lg:p-7 transition-all">
     <!-- 顶栏标题与快捷按钮 -->
-    <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
-      <div class="flex items-center gap-1.5 text-xs font-semibold text-blue-600 dark:text-blue-400">
-        <UiIcon name="sparkles" size="15" />
-        <span>在线快速验码 (Quick OTP)</span>
+    <div class="flex items-center justify-between mb-3.5 sm:mb-4 flex-wrap gap-2.5">
+      <div class="flex items-center gap-2 text-xs sm:text-sm font-semibold text-blue-600 dark:text-blue-400">
+        <UiIcon name="sparkles" size="17" />
+        <span class="text-sm sm:text-base font-bold">在线快速验码</span>
         <span class="text-zinc-400 dark:text-zinc-500 font-normal hidden sm:inline">· 粘贴即出码，不存网络</span>
       </div>
-      <div class="flex items-center gap-3 text-xs">
+      <div class="flex items-center gap-3 sm:gap-4 text-xs sm:text-sm">
         <!-- 自动复制开关 -->
         <button
-          class="flex items-center gap-1 text-zinc-500 dark:text-zinc-400 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
+          class="flex items-center gap-1.5 text-zinc-600 dark:text-zinc-400 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
           :title="autoCopy ? '已开启：识别有效密钥后自动复制验证码' : '已关闭自动复制'"
           @click="toggleAutoCopy"
         >
-          <UiIcon :name="autoCopy ? 'check-circle' : 'circle-x'" size="13" :class="autoCopy ? 'text-emerald-500' : 'text-zinc-400'" />
+          <UiIcon :name="autoCopy ? 'check-circle' : 'circle-x'" size="15" :class="autoCopy ? 'text-emerald-500' : 'text-zinc-400'" />
           <span>自动复制</span>
         </button>
 
         <!-- 演示密钥 -->
         <button
-          class="flex items-center gap-1 text-zinc-500 dark:text-zinc-400 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
+          class="flex items-center gap-1.5 text-zinc-600 dark:text-zinc-400 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
           title="填入标准 Base32 演示密钥体验即时出码"
           @click="fillDemo"
         >
-          <UiIcon name="key" size="13" />
+          <UiIcon name="key" size="15" />
           <span>演示密钥</span>
         </button>
 
         <!-- 粘贴剪贴板 / 清空 -->
-        <button v-if="!input" class="flex items-center gap-1 text-zinc-500 dark:text-zinc-400 hover:text-blue-600 dark:hover:text-blue-400 transition-colors" @click="pasteFromClipboard">
-          <UiIcon name="copy" size="13" />粘贴剪贴板
+        <button v-if="!input" class="flex items-center gap-1.5 text-zinc-600 dark:text-zinc-400 hover:text-blue-600 dark:hover:text-blue-400 transition-colors font-medium" @click="pasteFromClipboard">
+          <UiIcon name="copy" size="15" />粘贴剪贴板
         </button>
-        <button v-else class="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 transition-colors" @click="input = ''">
+        <button v-else class="text-xs sm:text-sm text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 transition-colors" @click="input = ''">
           清空
         </button>
       </div>
@@ -294,33 +294,33 @@ function saveToVault() {
         v-model="input"
         type="text"
         placeholder="粘贴 2FA 密钥 (Base32，如 JBSWY3DPEHPK3PXP) 或 otpauth:// 链接..."
-        class="w-full rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-3.5 py-2.5 text-sm font-mono outline-none focus:border-blue-500 dark:focus:border-blue-500 transition-colors shadow-xs placeholder:font-sans placeholder:text-zinc-400 dark:placeholder:text-zinc-500"
+        class="w-full rounded-xl sm:rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-4 py-3 sm:py-3.5 lg:py-4 text-sm sm:text-base lg:text-lg font-mono outline-none focus:border-blue-500 dark:focus:border-blue-500 transition-colors shadow-xs placeholder:font-sans placeholder:text-zinc-400 dark:placeholder:text-zinc-500"
         @focus="$event.target.select()"
       />
       <button
         v-if="input"
-        class="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 rounded-md"
+        class="absolute right-3 top-1/2 -translate-y-1/2 p-1.5 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 rounded-lg"
         @click="input = ''"
       >
-        <UiIcon name="x" size="14" />
+        <UiIcon name="x" size="16" />
       </button>
     </div>
 
     <!-- 错误提示 -->
-    <div v-if="error && input" class="flex items-center gap-1.5 text-xs text-rose-600 dark:text-rose-400 mt-2 px-1">
-      <UiIcon name="circle-x" size="13" />
+    <div v-if="error && input" class="flex items-center gap-2 text-xs sm:text-sm text-rose-600 dark:text-rose-400 mt-2.5 px-1">
+      <UiIcon name="circle-x" size="15" />
       <span>{{ error }}</span>
     </div>
 
     <!-- 成功算码结果卡片 -->
     <div
       v-if="parsedEntry && !error"
-      class="mt-3.5 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 rounded-xl border border-zinc-200/80 dark:border-zinc-800/80 bg-white/90 dark:bg-zinc-900/90 backdrop-blur p-3.5 shadow-sm"
+      class="mt-4 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4 rounded-xl sm:rounded-2xl border border-zinc-200/80 dark:border-zinc-800/80 bg-white/95 dark:bg-zinc-900/95 backdrop-blur p-4 sm:p-5 shadow-sm"
     >
-      <div class="flex items-center gap-3">
+      <div class="flex items-center gap-3.5 sm:gap-4.5">
         <!-- 倒计时圆环 -->
-        <div class="relative w-10 h-10 shrink-0 flex items-center justify-center">
-          <svg class="w-10 h-10 -rotate-90" viewBox="0 0 36 36">
+        <div class="relative w-11 h-11 sm:w-13 sm:h-13 lg:w-14 lg:h-14 shrink-0 flex items-center justify-center">
+          <svg class="w-full h-full -rotate-90" viewBox="0 0 36 36">
             <path
               class="text-zinc-100 dark:text-zinc-800"
               stroke-width="3"
@@ -339,7 +339,7 @@ function saveToVault() {
               d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
             />
           </svg>
-          <span class="absolute font-mono text-[10px] font-semibold text-zinc-600 dark:text-zinc-300">
+          <span class="absolute font-mono text-xs sm:text-sm font-bold text-zinc-700 dark:text-zinc-200">
             {{ remaining != null ? `${remaining}s` : 'HOTP' }}
           </span>
         </div>
@@ -347,68 +347,68 @@ function saveToVault() {
         <!-- 验证码与元信息 -->
         <div>
           <div class="flex items-baseline gap-2">
-            <span class="font-mono text-2xl font-bold tracking-wider text-zinc-900 dark:text-zinc-100 select-all cursor-pointer hover:text-blue-600 dark:hover:text-blue-400 transition-colors" @click="copyCode">
+            <span class="font-mono text-3xl sm:text-4xl lg:text-5xl font-black tracking-widest text-zinc-900 dark:text-zinc-100 select-all cursor-pointer hover:text-blue-600 dark:hover:text-blue-400 transition-colors leading-none" @click="copyCode">
               {{ formattedCode }}
             </span>
           </div>
-          <div class="flex items-center gap-1.5 text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
-            <span v-if="parsedEntry.issuer" class="font-medium text-zinc-700 dark:text-zinc-300">
+          <div class="flex items-center gap-2 text-xs sm:text-sm text-zinc-500 dark:text-zinc-400 mt-1.5">
+            <span v-if="parsedEntry.issuer" class="font-semibold text-zinc-800 dark:text-zinc-200">
               {{ parsedEntry.issuer }}
             </span>
             <span v-if="parsedEntry.label && parsedEntry.issuer">·</span>
             <span v-if="parsedEntry.label">{{ parsedEntry.label }}</span>
-            <span class="text-zinc-400 dark:text-zinc-600">({{ parsedEntry.algorithm }}, {{ parsedEntry.digits }}位)</span>
+            <span class="text-zinc-400 dark:text-zinc-500 text-xs">({{ parsedEntry.algorithm }}, {{ parsedEntry.digits }}位)</span>
           </div>
         </div>
       </div>
 
       <!-- 操作按钮组 -->
-      <div class="flex items-center gap-2 self-end sm:self-center flex-wrap">
+      <div class="flex items-center gap-2.5 self-end sm:self-center flex-wrap">
         <button
-          class="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors shadow-2xs"
+          class="flex items-center gap-2 rounded-xl px-4 py-2 sm:py-2.5 text-xs sm:text-sm font-semibold transition-colors shadow-2xs"
           :class="copied
             ? 'bg-emerald-600 text-white'
             : 'bg-blue-600 hover:bg-blue-500 text-white'"
           @click="copyCode"
         >
-          <UiIcon :name="copied ? 'check' : 'copy'" size="13" />
+          <UiIcon :name="copied ? 'check' : 'copy'" size="15" />
           {{ copied ? '已复制' : '复制验证码' }}
         </button>
 
         <button
-          class="flex items-center gap-1.5 rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 hover:border-blue-500 px-3 py-1.5 text-xs font-medium text-zinc-700 dark:text-zinc-200 transition-colors"
+          class="flex items-center gap-1.5 rounded-xl border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 hover:border-blue-500 px-3.5 py-2 sm:py-2.5 text-xs sm:text-sm font-medium text-zinc-700 dark:text-zinc-200 transition-colors"
           title="生成二维码以便手机验证器扫码导入"
           @click="showQr = true"
         >
-          <UiIcon name="qr-code" size="13" />二维码
+          <UiIcon name="qr-code" size="15" />二维码
         </button>
 
         <button
-          class="flex items-center gap-1.5 rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 hover:border-blue-500 px-3 py-1.5 text-xs font-medium text-zinc-700 dark:text-zinc-200 transition-colors"
+          class="flex items-center gap-1.5 rounded-xl border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 hover:border-blue-500 px-3.5 py-2 sm:py-2.5 text-xs sm:text-sm font-medium text-zinc-700 dark:text-zinc-200 transition-colors"
           title="保存到当前浏览器的本地保险库"
           @click="saveToVault"
         >
-          <UiIcon name="plus" size="13" />存入本地
+          <UiIcon name="plus" size="15" />存入本地
         </button>
       </div>
     </div>
 
     <!-- 最近算码记录（临时便签历史） -->
-    <div v-if="history.length > 0" class="mt-3.5 pt-3 border-t border-zinc-200/60 dark:border-zinc-800/60">
-      <div class="flex items-center justify-between mb-2">
-        <div class="flex items-center gap-1 text-[11px] font-semibold text-zinc-500 dark:text-zinc-400">
-          <UiIcon name="history" size="12" />
+    <div v-if="history.length > 0" class="mt-4 pt-3.5 border-t border-zinc-200/60 dark:border-zinc-800/60">
+      <div class="flex items-center justify-between mb-2.5">
+        <div class="flex items-center gap-1.5 text-xs sm:text-sm font-semibold text-zinc-500 dark:text-zinc-400">
+          <UiIcon name="history" size="14" />
           <span>最近算码记录 ({{ history.length }})</span>
         </div>
-        <button class="text-[11px] text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 transition-colors" @click="clearHistory">
+        <button class="text-xs text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 transition-colors" @click="clearHistory">
           清空历史
         </button>
       </div>
-      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+      <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-2.5">
         <div
           v-for="item in history"
           :key="item.secret"
-          class="group flex items-center justify-between gap-2 rounded-lg border border-zinc-200/70 dark:border-zinc-800/70 bg-white/50 dark:bg-zinc-900/50 p-2 text-xs hover:border-blue-500/40 hover:bg-white dark:hover:bg-zinc-900 transition-colors"
+          class="group flex items-center justify-between gap-2.5 rounded-xl border border-zinc-200/70 dark:border-zinc-800/70 bg-white/50 dark:bg-zinc-900/50 p-2.5 sm:p-3 text-xs sm:text-sm hover:border-blue-500/40 hover:bg-white dark:hover:bg-zinc-900 transition-colors"
         >
           <button
             class="flex-1 text-left min-w-0"
@@ -418,7 +418,7 @@ function saveToVault() {
             <div class="font-medium text-zinc-800 dark:text-zinc-200 truncate">
               {{ item.issuer || item.label || '临时验码' }}
             </div>
-            <div class="font-mono text-[10px] text-zinc-400 dark:text-zinc-500 truncate">
+            <div class="font-mono text-[11px] text-zinc-400 dark:text-zinc-500 truncate mt-0.5">
               {{ item.secret.slice(0, 4) }}••••{{ item.secret.slice(-4) }}
             </div>
           </button>
@@ -428,14 +428,14 @@ function saveToVault() {
               title="载入"
               @click="fillHistory(item)"
             >
-              <UiIcon name="sparkles" size="12" />
+              <UiIcon name="sparkles" size="13" />
             </button>
             <button
               class="p-1 rounded text-zinc-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
               title="删除此条"
               @click="removeHistoryItem(item.secret)"
             >
-              <UiIcon name="x" size="12" />
+              <UiIcon name="x" size="13" />
             </button>
           </div>
         </div>

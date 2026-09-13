@@ -37,8 +37,8 @@ const labelCls = 'block text-xs text-zinc-500 dark:text-zinc-400 mb-1.5';
 </script>
 
 <template>
-  <div class="fixed inset-0 z-50 bg-black/60 flex items-start justify-center p-6 overflow-y-auto" @click.self="emit('cancel')">
-    <div class="w-full max-w-md rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-6">
+  <div class="fixed inset-0 z-50 bg-black/60 flex items-start justify-center p-4 sm:p-6 overflow-y-auto" @click.self="emit('cancel')">
+    <div class="w-full max-w-lg rounded-2xl sm:rounded-3xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-6 sm:p-7 shadow-xl my-auto">
       <div class="flex items-center justify-between mb-3">
         <h3 class="text-base font-semibold m-0 flex items-center gap-2"><UiIcon name="upload" size="17" />导入条目</h3>
         <button class="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors" @click="emit('cancel')">
