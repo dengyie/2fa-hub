@@ -10,7 +10,7 @@ const props = defineProps({
   // 出码即推进计数器（HOTP）：async (entry) => void
   onHotpUse: { type: Function, default: null },
 });
-const emit = defineEmits(['edit', 'delete', 'move', 'toast']);
+const emit = defineEmits(['edit', 'delete', 'move', 'toast', 'qr']);
 
 const code = ref('······');
 const remaining = ref(null);
@@ -111,6 +111,7 @@ function initials() {
       <button class="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors" title="上移" @click="emit('move', -1)"><UiIcon name="arrow-up" size="15" /></button>
       <button class="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors" title="下移" @click="emit('move', 1)"><UiIcon name="arrow-down" size="15" /></button>
       <button class="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors" title="复制" @click="copy"><UiIcon name="copy" size="15" /></button>
+      <button class="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors" title="二维码" @click="emit('qr', entry)"><UiIcon name="qr-code" size="15" /></button>
       <button class="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors" title="编辑" @click="emit('edit', entry)"><UiIcon name="pencil" size="15" /></button>
       <button class="p-1.5 rounded-lg text-zinc-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors" title="删除" @click="emit('delete', entry)"><UiIcon name="trash" size="15" /></button>
     </div>

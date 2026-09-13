@@ -35,7 +35,7 @@ export class Router {
 
   match(method, parts) {
     for (const r of this.#routes) {
-      if (r.method !== method) continue;
+      if (r.method !== method && !(method === 'HEAD' && r.method === 'GET')) continue;
       const params = {};
       let ok = r.segs.length === parts.length;
       for (let i = 0; ok && i < r.segs.length; i++) {
@@ -131,7 +131,11 @@ export function createAppServer(router, { staticDir, bodyLimit }) {
       json(status, data) {
         headers['Content-Type'] = 'application/json; charset=utf-8';
         res.writeHead(status, headers);
-        res.end(JSON.stringify(data));
+        if (req.method === 'HEAD') {
+          res.end();
+        } else {
+          res.end(JSON.stringify(data));
+        }
       },
       setCookie(value) {
         headers['Set-Cookie'] = headers['Set-Cookie'] ? headers['Set-Cookie'] + ', ' + value : value;
@@ -143,7 +147,7 @@ export function createAppServer(router, { staticDir, bodyLimit }) {
         if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method) && !req.headers['x-requested-with']) {
           throw new HttpError(403, 'missing X-Requested-With header');
         }
-        if (req.method !== 'GET' && req.method !== 'DELETE') {
+        if (req.method !== 'GET' && req.method !== 'HEAD' && req.method !== 'DELETE') {
           const raw = await readBody(req, bodyLimit);
           if (raw.length) {
             try { ctx.body = JSON.parse(raw.toString('utf8')); } catch { throw new HttpError(400, 'invalid json body'); }

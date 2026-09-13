@@ -10,6 +10,7 @@ import OtpCard from '../components/OtpCard.vue';
 import EntryModal from '../components/EntryModal.vue';
 import ImportModal from '../components/ImportModal.vue';
 import QuickOtp from '../components/QuickOtp.vue';
+import QrModal from '../components/QrModal.vue';
 import UiIcon from '../components/ui/UiIcon.vue';
 
 const now = useTicker();
@@ -132,6 +133,7 @@ function doExport(kind) {
 }
 
 const editing = ref(null);
+const qrEntry = ref(null);
 const importing = ref(false);
 const showExport = ref(false);
 
@@ -212,6 +214,7 @@ const btnGhost = 'flex items-center gap-1.5 rounded-lg border border-zinc-300 da
         v-for="e in v.filtered.value" :key="e.id" :entry="e" :now="now"
         :on-hotp-use="advanceAndSave"
         @edit="editing = $event" @delete="v.removeEntry" @toast="v.showToast" @move="(d) => v.move(e, d)"
+        @qr="qrEntry = $event"
       />
     </div>
     <div
@@ -247,6 +250,7 @@ const btnGhost = 'flex items-center gap-1.5 rounded-lg border border-zinc-300 da
   <EntryModal v-if="editing !== null" :initial="editing.id ? editing : null"
     @save="editing = null; v.saveEntry($event)" @cancel="editing = null" @toast="v.showToast" />
   <ImportModal v-if="importing" @import="doImport" @cancel="importing = false" />
+  <QrModal v-if="qrEntry" :entry="qrEntry" @close="qrEntry = null" @toast="v.showToast" />
 
   <div class="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 rounded-lg border px-4 py-2.5 text-sm shadow-lg"
        :class="v.toastError.value

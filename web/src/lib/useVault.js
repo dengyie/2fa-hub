@@ -1,11 +1,44 @@
 // 保险库列表逻辑复用：云端与本地两个视图共用同一套列表/增删改/出码逻辑
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue';
 
+// 服务端标准时钟漂移对齐（消除客户端时钟偏差，保证 TOTP 绝对精准）
+let serverOffsetMs = 0;
+let synced = false;
+
+export async function syncServerClock() {
+  try {
+    const t0 = performance.now();
+    const res = await fetch('/api/health', { method: 'HEAD', cache: 'no-store' });
+    const dateStr = res.headers.get('Date');
+    if (!dateStr) return;
+    const rtt = performance.now() - t0;
+    const serverEpoch = new Date(dateStr).getTime() + rtt / 2;
+    serverOffsetMs = serverEpoch - Date.now();
+    synced = true;
+  } catch {}
+}
+
 export function useTicker() {
-  const now = ref(Date.now());
+  const now = ref(Date.now() + serverOffsetMs);
   let t = 0;
-  onMounted(() => { t = setInterval(() => (now.value = Date.now()), 1000); });
-  onBeforeUnmount(() => clearInterval(t));
+  function update() {
+    now.value = Date.now() + serverOffsetMs;
+  }
+  function onVisibilityChange() {
+    if (document.visibilityState === 'visible') {
+      syncServerClock().then(update);
+    }
+  }
+  onMounted(() => {
+    update();
+    if (!synced) syncServerClock().then(update);
+    t = setInterval(update, 1000);
+    document.addEventListener('visibilitychange', onVisibilityChange);
+  });
+  onBeforeUnmount(() => {
+    clearInterval(t);
+    document.removeEventListener('visibilitychange', onVisibilityChange);
+  });
   return now;
 }
 
