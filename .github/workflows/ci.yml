@@ -6,6 +6,7 @@ on:
     tags: ['v*']
   pull_request:
     branches: [main]
+  workflow_dispatch:
 
 env:
   REGISTRY: ghcr.io
@@ -68,9 +69,9 @@ jobs:
 
   docker:
     name: Docker build & publish (GHCR)
-    # PR 只构建不发布；push 到 main 或打 v* tag 才发布
+    # PR 只构建不发布；push 到 main、打 v* tag 或手动 dispatch 才发布
     needs: [server-tests, web-build]
-    if: github.event_name == 'push'
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -104,3 +105,62 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  deploy:
+    name: Deploy to VPS (google-vps-next)
+    needs: [docker]
+    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Configure SSH Key
+        env:
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          VPS_SSH_HOST: ${{ secrets.VPS_SSH_HOST }}
+          VPS_SSH_PORT: ${{ secrets.VPS_SSH_PORT }}
+          VPS_SSH_USER: ${{ secrets.VPS_SSH_USER }}
+          VPS_KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
+        run: |
+          if [ -z "$VPS_SSH_KEY" ] || [ -z "$VPS_SSH_HOST" ]; then
+            echo "::error::Missing VPS_SSH_KEY or VPS_SSH_HOST; refusing to deploy."
+            exit 1
+          fi
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          printf '%s\n' "$VPS_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 644 ~/.ssh/known_hosts
+
+      - name: Pull and restart container on VPS
+        env:
+          VPS_SSH_HOST: ${{ secrets.VPS_SSH_HOST }}
+          VPS_SSH_PORT: ${{ secrets.VPS_SSH_PORT }}
+          VPS_SSH_USER: ${{ secrets.VPS_SSH_USER }}
+        run: |
+          PORT="${VPS_SSH_PORT:-22}"
+          ssh -p "$PORT" -i ~/.ssh/id_ed25519 "$VPS_SSH_USER@$VPS_SSH_HOST" bash -s << 'EOF'
+            set -euo pipefail
+            cd ~/2fa-hub
+            echo "Pulling latest image from GHCR..."
+            docker compose pull
+            echo "Restarting 2fa-hub container..."
+            docker compose up -d
+            echo "Waiting for health check..."
+            for i in $(seq 1 30); do
+              status=$(docker inspect --format='{{.State.Health.Status}}' 2fa-hub 2>/dev/null || echo "starting")
+              if [ "$status" = "healthy" ]; then
+                echo "Container is healthy!"
+                break
+              fi
+              echo "Status: $status, waiting 2s... ($i/30)"
+              sleep 2
+            done
+            docker compose ps
+          EOF
+
+      - name: Verify public endpoint
+        run: |
+          echo "Probing public health endpoint..."
+          curl -sf --retry 5 --retry-delay 2 --retry-connrefused https://2fa.mangoqwq.com/api/health | grep -q '"ok":true'
+          echo "Production deployment verified successfully!"

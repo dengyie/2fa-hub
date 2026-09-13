@@ -2,12 +2,14 @@
 // 本地模式（游客）：条目只存本机浏览器 localStorage，绝不经过网络。
 // 可选口令加密整库（PBKDF2 + AES-GCM）。
 import { ref, onMounted } from 'vue';
+import { store } from '../store.js';
 import { useVault, useTicker } from '../lib/useVault.js';
 import { loadLocalVault, saveLocalVault, wipeLocalVault } from '../lib/localvault.js';
 import { export2FaHubJson, exportOtpauthTxt, download } from '../lib/formats.js';
 import OtpCard from '../components/OtpCard.vue';
 import EntryModal from '../components/EntryModal.vue';
 import ImportModal from '../components/ImportModal.vue';
+import QuickOtp from '../components/QuickOtp.vue';
 import UiIcon from '../components/ui/UiIcon.vue';
 
 const now = useTicker();
@@ -46,6 +48,11 @@ const backend = {
 };
 
 const v = useVault(backend);
+
+// 快速算码一键存入本地
+async function handleQuickSave(e) {
+  await v.saveEntry(e);
+}
 
 // HOTP 出码后推进本地计数器并持久化
 async function advanceAndSave(e) {
@@ -132,9 +139,17 @@ const btnGhost = 'flex items-center gap-1.5 rounded-lg border border-zinc-300 da
 </script>
 
 <template>
-  <div class="flex items-start gap-2 rounded-xl border border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300 text-[13px] px-3.5 py-2.5 my-3 leading-relaxed">
-    <UiIcon name="shield" size="15" class="mt-0.5 shrink-0" />
-    <span>本地模式 —— 所有数据只保存在本机浏览器中，<b>不会上传服务器</b>。清除浏览器数据会丢失条目，请定期导出备份。</span>
+  <div class="flex items-start justify-between gap-3 rounded-xl border border-emerald-500/30 bg-emerald-500/10 text-emerald-800 dark:text-emerald-300 text-[13px] px-3.5 py-2.5 my-3 leading-relaxed">
+    <div class="flex items-start gap-2">
+      <UiIcon name="shield" size="15" class="mt-0.5 shrink-0 text-emerald-600 dark:text-emerald-400" />
+      <span>
+        <b>免登本地模式</b> —— 纯前端离线安全计算，数据仅保留在当前浏览器中，<b>绝不上传服务器</b>。
+        清除浏览器缓存会丢失条目，建议定期导出备份。
+      </span>
+    </div>
+    <router-link v-if="!store.user" to="/login" class="shrink-0 font-medium text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1 text-xs">
+      <UiIcon name="cloud" size="13" />云端同步
+    </router-link>
   </div>
 
   <!-- 加锁状态 -->
@@ -153,6 +168,9 @@ const btnGhost = 'flex items-center gap-1.5 rounded-lg border border-zinc-300 da
   </div>
 
   <template v-else>
+    <!-- ⚡️ 快速在线算码组件 -->
+    <QuickOtp :now="now" class="my-3.5" @save-entry="handleQuickSave" @toast="v.showToast" />
+
     <div class="flex gap-2 mb-4 flex-wrap items-center">
       <div class="relative flex-1 min-w-[160px]">
         <UiIcon name="search" size="15" class="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400 pointer-events-none" />
@@ -196,8 +214,30 @@ const btnGhost = 'flex items-center gap-1.5 rounded-lg border border-zinc-300 da
         @edit="editing = $event" @delete="v.removeEntry" @toast="v.showToast" @move="(d) => v.move(e, d)"
       />
     </div>
-    <div class="text-center text-sm text-zinc-500 dark:text-zinc-400 py-16 leading-loose" v-if="v.ready.value && !v.entries.value.length">
-      本地保险库是空的。<br />点「添加」手动录入，或从其他验证器导入文件。
+    <div
+      v-if="v.ready.value && v.entries.value.length > 0 && !v.filtered.value.length"
+      class="text-center text-sm text-zinc-500 dark:text-zinc-400 py-10 px-4 rounded-xl border border-zinc-200/60 dark:border-zinc-800/60 bg-zinc-50/50 dark:bg-zinc-900/30 my-2"
+    >
+      <UiIcon name="search" size="20" class="mx-auto text-zinc-400 mb-2" />
+      <p class="font-medium text-zinc-700 dark:text-zinc-300">未找到匹配条目</p>
+      <p class="text-xs text-zinc-400 dark:text-zinc-500 mt-1">没有包含「{{ v.search.value }}」的服务或账户</p>
+    </div>
+    <div class="text-center text-sm text-zinc-500 dark:text-zinc-400 py-12 px-4 rounded-2xl border border-dashed border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900/30 my-4" v-if="v.ready.value && !v.entries.value.length">
+      <div class="w-12 h-12 rounded-full bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 flex items-center justify-center mx-auto mb-3">
+        <UiIcon name="shield" size="24" />
+      </div>
+      <p class="font-medium text-zinc-800 dark:text-zinc-200 mb-1">本地保险库暂无保存条目</p>
+      <p class="text-xs text-zinc-400 dark:text-zinc-500 max-w-sm mx-auto mb-5 leading-relaxed">
+        所有数据保存在本地浏览器中，绝不上云。<br />上方可直接粘贴密钥临时算码，也可添加保存或导入已有条目。
+      </p>
+      <div class="flex items-center justify-center gap-2">
+        <button class="flex items-center gap-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-medium px-3.5 py-2 text-xs transition-colors" @click="editing = {}">
+          <UiIcon name="plus" size="14" />手动录入
+        </button>
+        <button class="flex items-center gap-1.5 rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 hover:border-blue-500 text-zinc-700 dark:text-zinc-300 font-medium px-3.5 py-2 text-xs transition-colors" @click="importing = true">
+          <UiIcon name="upload" size="14" />从其他验证器导入
+        </button>
+      </div>
     </div>
     <div class="text-center text-sm text-zinc-500 dark:text-zinc-400 py-16" v-if="!v.ready.value">
       <UiIcon name="loader" size="20" class="inline-block animate-spin" />

@@ -3,6 +3,7 @@
 import { ref, onMounted } from 'vue';
 import { store, api } from '../store.js';
 import { useVault, useTicker } from '../lib/useVault.js';
+import { loadLocalVault, wipeLocalVault } from '../lib/localvault.js';
 import { export2FaHubJson, exportOtpauthTxt, download } from '../lib/formats.js';
 import OtpCard from '../components/OtpCard.vue';
 import EntryModal from '../components/EntryModal.vue';
@@ -23,8 +24,48 @@ const v = useVault(backend);
 const editing = ref(null);   // null=关闭, {}=新建, entry=编辑
 const importing = ref(false);
 const showExport = ref(false);
+const localCount = ref(0);
+const localEntries = ref([]);
+const showMigrateBanner = ref(false);
 
-onMounted(() => { v.reload().catch((e) => { if (e.status === 401) location.href = '/login'; }); });
+onMounted(async () => {
+  v.reload().catch((e) => { if (e.status === 401) location.href = '/login'; });
+  try {
+    const isDismissed = sessionStorage.getItem('2fahub.local.migrate_dismissed');
+    const isMigrated = localStorage.getItem('2fahub.local.migrated');
+    if (!isDismissed && !isMigrated) {
+      const local = await loadLocalVault();
+      if (!local.encrypted && local.entries?.length > 0) {
+        localEntries.value = local.entries;
+        localCount.value = local.entries.length;
+        showMigrateBanner.value = true;
+      }
+    }
+  } catch {
+    // 加密库或无法读取时不打扰
+  }
+});
+
+function dismissMigrateBanner() {
+  showMigrateBanner.value = false;
+  sessionStorage.setItem('2fahub.local.migrate_dismissed', '1');
+}
+
+async function migrateLocalToCloud() {
+  await v.run(async () => {
+    await api('/api/entries/bulk', { method: 'POST', body: { entries: localEntries.value } });
+    await v.reload();
+    showMigrateBanner.value = false;
+    localStorage.setItem('2fahub.local.migrated', '1');
+    const count = localCount.value;
+    if (confirm(`已成功将 ${count} 个本地条目同步至云端！\n是否清空本地暂存条目以避免数据重复混淆？`)) {
+      wipeLocalVault();
+      localEntries.value = [];
+      localCount.value = 0;
+    }
+    v.showToast(`已将 ${count} 个本地条目同步至云端`);
+  });
+}
 
 async function doImport(list) {
   importing.value = false;
@@ -52,6 +93,23 @@ function doExport(kind) {
     <UiIcon name="cloud" size="15" class="mt-0.5 shrink-0" />
     <span>云端模式 —— 条目加密存储在服务器，登录后多端同步。需要离线/不上传？切换到
       <router-link to="/local" class="underline underline-offset-2">本地模式</router-link>。</span>
+  </div>
+
+  <!-- 本地数据一键上云引导 -->
+  <div v-if="showMigrateBanner && localCount > 0"
+       class="flex items-center justify-between gap-3 rounded-xl border border-blue-500/30 bg-blue-500/10 text-blue-950 dark:text-blue-200 text-xs px-3.5 py-2.5 my-3">
+    <div class="flex items-center gap-2">
+      <UiIcon name="upload" size="16" class="text-blue-600 dark:text-blue-400 shrink-0" />
+      <span>检测到本机浏览器有 <b>{{ localCount }}</b> 个本地 2FA 条目，是否一键导入到云端账号同步？</span>
+    </div>
+    <div class="flex items-center gap-2 shrink-0">
+      <button class="bg-blue-600 hover:bg-blue-500 text-white font-medium px-2.5 py-1 rounded-md transition-colors" @click="migrateLocalToCloud">
+        一键导入
+      </button>
+      <button class="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 p-1" @click="dismissMigrateBanner">
+        <UiIcon name="x" size="13" />
+      </button>
+    </div>
   </div>
 
   <div class="flex gap-2 mb-4 flex-wrap items-center">
@@ -87,6 +145,14 @@ function doExport(kind) {
       :on-hotp-use="v.advanceHotp"
       @edit="editing = $event" @delete="v.removeEntry" @toast="v.showToast" @move="(d) => v.move(e, d)"
     />
+  </div>
+  <div
+    v-if="v.ready.value && v.entries.value.length > 0 && !v.filtered.value.length"
+    class="text-center text-sm text-zinc-500 dark:text-zinc-400 py-10 px-4 rounded-xl border border-zinc-200/60 dark:border-zinc-800/60 bg-zinc-50/50 dark:bg-zinc-900/30 my-2"
+  >
+    <UiIcon name="search" size="20" class="mx-auto text-zinc-400 mb-2" />
+    <p class="font-medium text-zinc-700 dark:text-zinc-300">未找到匹配条目</p>
+    <p class="text-xs text-zinc-400 dark:text-zinc-500 mt-1">没有包含「{{ v.search.value }}」的服务或账户</p>
   </div>
   <div class="text-center text-sm text-zinc-500 dark:text-zinc-400 py-16 leading-loose" v-if="v.ready.value && !v.entries.value.length">
     还没有条目。<br />点击「添加」或「导入」从其他验证器迁移。
