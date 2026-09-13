@@ -1,7 +1,8 @@
 <script setup>
-// 摄像头/图片扫码：jsQR 解码 otpauth:// 二维码
+// 摄像头/图片扫码：解码 otpauth:// 二维码
 import { ref, onMounted, onBeforeUnmount } from 'vue';
 import jsQR from 'jsqr';
+import { decodeQRImage } from '../lib/decodeQR.js';
 import UiIcon from './ui/UiIcon.vue';
 
 const emit = defineEmits(['decoded', 'cancel']);
@@ -62,13 +63,8 @@ async function onFile(ev) {
   const img = new Image();
   img.src = URL.createObjectURL(file);
   await img.decode();
-  const canvas = document.createElement('canvas');
-  const ctx = canvas.getContext('2d', { willReadFrequently: true });
-  canvas.width = img.naturalWidth;
-  canvas.height = img.naturalHeight;
-  ctx.drawImage(img, 0, 0);
-  const found = jsQR(ctx.getImageData(0, 0, canvas.width, canvas.height).data, canvas.width, canvas.height);
-  if (found?.data) emit('decoded', found.data);
+  const raw = await decodeQRImage(img);
+  if (raw) emit('decoded', raw);
   else error.value = '图片中未识别到二维码';
   URL.revokeObjectURL(img.src);
 }

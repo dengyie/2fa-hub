@@ -8,6 +8,7 @@ import { loadLocalVault, saveLocalVault, wipeLocalVault } from '../lib/localvaul
 import { export2FaHubJson, exportOtpauthTxt, download } from '../lib/formats.js';
 import OtpCard from '../components/OtpCard.vue';
 import EntryModal from '../components/EntryModal.vue';
+import UploadQrModal from '../components/UploadQrModal.vue';
 import ImportModal from '../components/ImportModal.vue';
 import QuickOtp from '../components/QuickOtp.vue';
 import QrModal from '../components/QrModal.vue';
@@ -136,6 +137,7 @@ const editing = ref(null);
 const qrEntry = ref(null);
 const importing = ref(false);
 const showExport = ref(false);
+const uploadingQr = ref(false);
 
 const btnGhost = 'flex items-center gap-1.5 rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 hover:border-blue-500 px-3.5 py-2 text-sm transition-colors';
 </script>
@@ -182,6 +184,7 @@ const btnGhost = 'flex items-center gap-1.5 rounded-lg border border-zinc-300 da
       <button class="flex items-center gap-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-semibold px-3.5 py-2 text-sm transition-colors" @click="editing = {}">
         <UiIcon name="plus" size="15" />添加
       </button>
+      <button :class="btnGhost" @click="uploadingQr = true"><UiIcon name="image" size="15" />上传二维码</button>
       <button :class="btnGhost" @click="importing = true"><UiIcon name="upload" size="15" />导入</button>
       <div class="relative">
         <button :class="btnGhost" @click="showExport = !showExport"><UiIcon name="download" size="15" />导出</button>
@@ -233,8 +236,11 @@ const btnGhost = 'flex items-center gap-1.5 rounded-lg border border-zinc-300 da
       <p class="text-xs text-zinc-400 dark:text-zinc-500 max-w-sm mx-auto mb-5 leading-relaxed">
         所有数据保存在本地浏览器中，绝不上云。<br />上方可直接粘贴密钥临时算码，也可添加保存或导入已有条目。
       </p>
-      <div class="flex items-center justify-center gap-2">
-        <button class="flex items-center gap-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-medium px-3.5 py-2 text-xs transition-colors" @click="editing = {}">
+      <div class="flex items-center justify-center gap-2 flex-wrap">
+        <button class="flex items-center gap-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-medium px-3.5 py-2 text-xs transition-colors" @click="uploadingQr = true">
+          <UiIcon name="image" size="14" />上传二维码图片
+        </button>
+        <button class="flex items-center gap-1.5 rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 hover:border-blue-500 text-zinc-700 dark:text-zinc-300 font-medium px-3.5 py-2 text-xs transition-colors" @click="editing = {}">
           <UiIcon name="plus" size="14" />手动录入
         </button>
         <button class="flex items-center gap-1.5 rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 hover:border-blue-500 text-zinc-700 dark:text-zinc-300 font-medium px-3.5 py-2 text-xs transition-colors" @click="importing = true">
@@ -250,6 +256,7 @@ const btnGhost = 'flex items-center gap-1.5 rounded-lg border border-zinc-300 da
   <EntryModal v-if="editing !== null" :initial="editing.id ? editing : null"
     @save="editing = null; v.saveEntry($event)" @cancel="editing = null" @toast="v.showToast" />
   <ImportModal v-if="importing" @import="doImport" @cancel="importing = false" />
+  <UploadQrModal v-if="uploadingQr" @save="uploadingQr = false; v.saveEntry($event)" @cancel="uploadingQr = false" @toast="v.showToast" />
   <QrModal v-if="qrEntry" :entry="qrEntry" @close="qrEntry = null" @toast="v.showToast" />
 
   <div class="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 rounded-lg border px-4 py-2.5 text-sm shadow-lg"

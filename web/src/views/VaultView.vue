@@ -7,6 +7,7 @@ import { loadLocalVault, wipeLocalVault } from '../lib/localvault.js';
 import { export2FaHubJson, exportOtpauthTxt, download } from '../lib/formats.js';
 import OtpCard from '../components/OtpCard.vue';
 import EntryModal from '../components/EntryModal.vue';
+import UploadQrModal from '../components/UploadQrModal.vue';
 import ImportModal from '../components/ImportModal.vue';
 import QrModal from '../components/QrModal.vue';
 import UiIcon from '../components/ui/UiIcon.vue';
@@ -26,6 +27,7 @@ const editing = ref(null);   // null=关闭, {}=新建, entry=编辑
 const qrEntry = ref(null);
 const importing = ref(false);
 const showExport = ref(false);
+const uploadingQr = ref(false);
 const localCount = ref(0);
 const localEntries = ref([]);
 const showMigrateBanner = ref(false);
@@ -123,6 +125,9 @@ function doExport(kind) {
     <button class="flex items-center gap-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-semibold px-3.5 py-2 text-sm transition-colors" @click="editing = {}">
       <UiIcon name="plus" size="15" />添加
     </button>
+    <button class="flex items-center gap-1.5 rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 hover:border-blue-500 px-3.5 py-2 text-sm transition-colors" @click="uploadingQr = true">
+      <UiIcon name="image" size="15" />上传二维码
+    </button>
     <button class="flex items-center gap-1.5 rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 hover:border-blue-500 px-3.5 py-2 text-sm transition-colors" @click="importing = true">
       <UiIcon name="upload" size="15" />导入
     </button>
@@ -158,7 +163,7 @@ function doExport(kind) {
     <p class="text-xs text-zinc-400 dark:text-zinc-500 mt-1">没有包含「{{ v.search.value }}」的服务或账户</p>
   </div>
   <div class="text-center text-sm text-zinc-500 dark:text-zinc-400 py-16 leading-loose" v-if="v.ready.value && !v.entries.value.length">
-    还没有条目。<br />点击「添加」或「导入」从其他验证器迁移。
+    还没有条目。<br />点击「上传二维码」「添加」或「导入」从其他验证器迁移。
   </div>
   <div class="text-center text-sm text-zinc-500 dark:text-zinc-400 py-16" v-if="!v.ready.value">
     <UiIcon name="loader" size="20" class="inline-block animate-spin" />
@@ -167,6 +172,7 @@ function doExport(kind) {
   <EntryModal v-if="editing !== null" :initial="editing.id ? editing : null"
     @save="editing = null; v.saveEntry($event)" @cancel="editing = null" @toast="v.showToast" />
   <ImportModal v-if="importing" @import="doImport" @cancel="importing = false" />
+  <UploadQrModal v-if="uploadingQr" @save="uploadingQr = false; v.saveEntry($event)" @cancel="uploadingQr = false" @toast="v.showToast" />
   <QrModal v-if="qrEntry" :entry="qrEntry" @close="qrEntry = null" @toast="v.showToast" />
 
   <div class="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 rounded-lg border px-4 py-2.5 text-sm shadow-lg"
