@@ -4,6 +4,7 @@ import { hashPassword, verifyPassword, signToken, verifyToken, sessionExpiry } f
 import { HttpError } from '../http.js';
 import { allow, reset } from '../limiter.js';
 import { config } from '../config.js';
+import { getTurnstileConfig, verifyTurnstile } from '../turnstile.js';
 
 export const COOKIE_NAME = 'otk_session';
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -50,6 +51,18 @@ export function registerAuthRoutes(router) {
         // 邀请码只经环境变量配置（INVITE_CODE）；未配置时视为关闭注册，避免"锁死"假象
         const expected = getSetting('invite_code', config.inviteCode);
         if (!expected || ctx.body?.invite_code !== expected) throw new HttpError(403, 'invalid invite code');
+      }
+    }
+    // Cloudflare Turnstile 人机验证校验（启用时防刷号与自动化攻击）
+    const turnstileCfg = getTurnstileConfig();
+    if (turnstileCfg.enabled) {
+      const turnstileToken = ctx.body?.turnstile_token || ctx.body?.['cf-turnstile-response'];
+      if (!turnstileToken) {
+        throw new HttpError(400, '请先完成人机安全验证 (Cloudflare Turnstile)');
+      }
+      const verifyResult = await verifyTurnstile(turnstileToken, ctx.ip);
+      if (!verifyResult.success) {
+        throw new HttpError(400, '人机安全验证未通过，请刷新后重试');
       }
     }
     if (!allow(`register:${ctx.ip}`, 5, 3600_000)) throw new HttpError(429, 'too many attempts');
@@ -111,10 +124,13 @@ export function registerAuthRoutes(router) {
   });
 
   router.get('/api/bootstrap', async (ctx) => {
-    // 前端启动探测：注册是否开放 / 系统是否已初始化
+    // 前端启动探测：注册是否开放 / 系统是否已初始化 / Cloudflare Turnstile 配置
+    const turnstileCfg = getTurnstileConfig();
     ctx.json(200, {
       initialized: userCount() > 0,
       register_mode: effectiveRegisterMode(),
+      turnstile_enabled: turnstileCfg.enabled,
+      turnstile_sitekey: turnstileCfg.enabled ? turnstileCfg.siteKey : null,
     });
   });
 }

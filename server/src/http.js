@@ -84,8 +84,8 @@ function securityHeaders() {
     'Referrer-Policy': 'no-referrer',
     'Permissions-Policy': `camera=${cameraAllow}, geolocation=()`,
     'Content-Security-Policy':
-      "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; " +
-      "img-src 'self' data: blob:; connect-src 'self'; media-src 'self' blob:; " +
+      "default-src 'self'; script-src 'self' https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline'; " +
+      "img-src 'self' data: blob:; connect-src 'self' https://challenges.cloudflare.com; frame-src 'self' https://challenges.cloudflare.com; media-src 'self' blob:; " +
       "object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'",
   };
 }

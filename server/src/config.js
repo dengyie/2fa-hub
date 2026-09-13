@@ -34,6 +34,10 @@ export const config = {
   // open: 允许自由注册（首个用户固定为管理员）；closed: 仅管理员可建号；invite: 需邀请码
   registerMode: process.env.REGISTER_MODE || 'open',
   inviteCode: process.env.INVITE_CODE || '',
+  // Cloudflare Turnstile 人机验证配置（可随时在管理后台设置或经环境变量配置）
+  turnstileSiteKey: process.env.CF_TURNSTILE_SITEKEY || process.env.TURNSTILE_SITEKEY || '',
+  turnstileSecretKey: process.env.CF_TURNSTILE_SECRET_KEY || process.env.TURNSTILE_SECRET_KEY || '',
+  turnstileEnabled: process.env.CF_TURNSTILE_ENABLED === '1' || process.env.CF_TURNSTILE_ENABLED === 'true',
   cookieSecure: process.env.COOKIE_SECURE !== '0',
   // 前后端分离部署时：cookie 跨站需 SameSite=None（且 Secure=1）
   cookieSameSite: process.env.COOKIE_SAMESITE || 'Strict',

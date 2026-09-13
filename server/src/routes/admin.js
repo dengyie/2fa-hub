@@ -1,8 +1,10 @@
 // 管理员路由：用户全量管控（禁用/启用/删号/重置密码/提权）+ 系统设置 + 审计日志
-import { db, audit, setSetting } from '../db.js';
+import { db, audit, setSetting, getSetting } from '../db.js';
 import { hashPassword } from '../crypto.js';
 import { HttpError } from '../http.js';
+import { config } from '../config.js';
 import { adminRequired } from './auth.js';
+import { getTurnstileConfig } from '../turnstile.js';
 
 function adminUserView(u) {
   return {
@@ -61,6 +63,16 @@ export function registerAdminRoutes(router) {
     ctx.json(200, { ok: true });
   });
 
+  router.get('/api/admin/settings', adminRequired, async (ctx) => {
+    const turnstileCfg = getTurnstileConfig();
+    ctx.json(200, {
+      register_mode: getSetting('register_mode', config.registerMode),
+      turnstile_enabled: turnstileCfg.enabled,
+      turnstile_sitekey: turnstileCfg.siteKey,
+      has_turnstile_secretkey: Boolean(turnstileCfg.secretKey),
+    });
+  });
+
   router.put('/api/admin/settings', adminRequired, async (ctx) => {
     const b = ctx.body || {};
     if (b.register_mode !== undefined) {
@@ -68,7 +80,30 @@ export function registerAdminRoutes(router) {
       setSetting('register_mode', b.register_mode);
       audit(ctx.user.id, 'admin_setting', `register_mode=${b.register_mode}`, ctx.ip, ctx.ua);
     }
-    ctx.json(200, { register_mode: db.prepare('SELECT value FROM settings WHERE key = ?').get('register_mode')?.value ?? 'open' });
+    if (b.turnstile_enabled !== undefined) {
+      setSetting('turnstile_enabled', b.turnstile_enabled ? '1' : '0');
+      audit(ctx.user.id, 'admin_setting', `turnstile_enabled=${b.turnstile_enabled}`, ctx.ip, ctx.ua);
+    }
+    if (b.turnstile_sitekey !== undefined) {
+      setSetting('turnstile_sitekey', String(b.turnstile_sitekey).trim());
+      audit(ctx.user.id, 'admin_setting', `turnstile_sitekey=${b.turnstile_sitekey ? 'set' : 'cleared'}`, ctx.ip, ctx.ua);
+    }
+    if (b.turnstile_secretkey !== undefined) {
+      if (b.turnstile_secretkey) {
+        setSetting('turnstile_secretkey', String(b.turnstile_secretkey).trim());
+        audit(ctx.user.id, 'admin_setting', `turnstile_secretkey=updated`, ctx.ip, ctx.ua);
+      } else if (b.turnstile_secretkey === '') {
+        setSetting('turnstile_secretkey', '');
+        audit(ctx.user.id, 'admin_setting', `turnstile_secretkey=cleared`, ctx.ip, ctx.ua);
+      }
+    }
+    const turnstileCfg = getTurnstileConfig();
+    ctx.json(200, {
+      register_mode: getSetting('register_mode', config.registerMode),
+      turnstile_enabled: turnstileCfg.enabled,
+      turnstile_sitekey: turnstileCfg.siteKey,
+      has_turnstile_secretkey: Boolean(turnstileCfg.secretKey),
+    });
   });
 
   router.get('/api/admin/audit', adminRequired, async (ctx) => {
