@@ -5,30 +5,39 @@ import { parseOtpauthUri } from '@shared/otpauth.js';
 import { decodeQRImage } from '../lib/decodeQR.js';
 import UiIcon from './ui/UiIcon.vue';
 
-const emit = defineEmits(['save', 'cancel', 'toast']);
+const emit = defineEmits(['save', 'cancel']);
 const error = ref('');
 const scanning = ref(false);
 const preview = ref(null);   // 解码成功后的可编辑条目
-const previewImg = ref('');
+const previewObjUrl = ref('');   // 预览用的 blob object URL，需在关闭/重置时回收
 
 const inputCls = 'w-full rounded-lg border border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-950 px-3 py-2 text-sm outline-none focus:border-blue-500 transition-colors';
 const labelCls = 'block text-xs text-zinc-500 dark:text-zinc-400 mb-1.5';
+
+function revokeObjUrl() {
+  if (previewObjUrl.value) {
+    URL.revokeObjectURL(previewObjUrl.value);
+    previewObjUrl.value = '';
+  }
+}
 
 async function onFile(ev) {
   const file = ev.target.files?.[0];
   if (!file) return;
   ev.target.value = '';          // 允许重复选择同一文件
   error.value = '';
+  revokeObjUrl();                // 先释放上一张图的 blob URL
   scanning.value = true;
+  const objUrl = URL.createObjectURL(file);
+  previewObjUrl.value = objUrl;
   const img = new Image();
-  img.src = URL.createObjectURL(file);
+  img.src = objUrl;
   try {
     await img.decode();
     const raw = await decodeQRImage(img);
     if (!raw) throw new Error('图片中未识别到二维码');
     const entry = parseOtpauthUri(raw);
     if (!entry.secret) throw new Error('二维码不包含 2FA secret');
-    previewImg.value = img.src;
     preview.value = entry;
   } catch (err) {
     error.value = `解析失败：${err.message}。请上传清晰的 2FA 二维码截图。`;
@@ -41,6 +50,7 @@ function save() {
   try {
     if (!preview.value.secret.trim()) throw new Error('secret 不能为空');
     if (!preview.value.issuer.trim() && !preview.value.label.trim()) throw new Error('至少填写 服务名 或 账户名');
+    revokeObjUrl();
     emit('save', { ...preview.value });
   } catch (err) {
     error.value = err.message;
@@ -49,17 +59,22 @@ function save() {
 
 function reset() {
   preview.value = null;
-  previewImg.value = '';
+  revokeObjUrl();
   error.value = '';
+}
+
+function close() {
+  revokeObjUrl();
+  emit('cancel');
 }
 </script>
 
 <template>
-  <div class="fixed inset-0 z-50 bg-black/60 flex items-start justify-center p-4 sm:p-6 overflow-y-auto" @click.self="emit('cancel')">
+  <div class="fixed inset-0 z-50 bg-black/60 flex items-start justify-center p-4 sm:p-6 overflow-y-auto" @click.self="close">
     <div class="w-full max-w-lg rounded-2xl sm:rounded-3xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-6 sm:p-7 shadow-xl my-auto">
       <div class="flex items-center justify-between mb-1">
         <h3 class="text-base font-semibold m-0 flex items-center gap-2"><UiIcon name="image" size="17" />上传二维码添加</h3>
-        <button class="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors" @click="emit('cancel')">
+        <button class="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors" @click="close">
           <UiIcon name="x" size="16" />
         </button>
       </div>
@@ -81,7 +96,7 @@ function reset() {
       <!-- 解码成功：预览编辑 -->
       <div v-else class="space-y-3.5">
         <div class="flex items-center gap-3 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-2">
-          <img :src="previewImg" class="w-12 h-12 rounded-lg object-contain bg-white dark:bg-zinc-800 p-0.5" alt="二维码" />
+          <img :src="previewObjUrl" class="w-12 h-12 rounded-lg object-contain bg-white dark:bg-zinc-800 p-0.5" alt="二维码" />
           <div class="text-[13px] text-emerald-700 dark:text-emerald-300">
             <p class="font-semibold flex items-center gap-1.5"><UiIcon name="check-circle" size="15" />识别成功，请核对以下信息</p>
           </div>
@@ -106,7 +121,7 @@ function reset() {
         <div class="flex gap-2 justify-between mt-2">
           <button class="rounded-lg border border-zinc-300 dark:border-zinc-700 px-4 py-2 text-sm hover:border-blue-500 transition-colors" @click="reset">换一张</button>
           <div class="flex gap-2">
-            <button class="rounded-lg border border-zinc-300 dark:border-zinc-700 px-4 py-2 text-sm hover:border-blue-500 transition-colors" @click="emit('cancel')">取消</button>
+            <button class="rounded-lg border border-zinc-300 dark:border-zinc-700 px-4 py-2 text-sm hover:border-blue-500 transition-colors" @click="close">取消</button>
             <button class="rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-semibold px-4 py-2 text-sm transition-colors" @click="save">添加</button>
           </div>
         </div>
