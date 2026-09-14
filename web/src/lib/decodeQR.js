@@ -2,34 +2,21 @@
 // 并尝试多种尺度缩放 / 反转组合增强对模糊、反色照片的识别成功率。
 import jsQR from 'jsqr';
 
-function toImageData(img) {
+// 将图片直接以不超过 maxDim 的边长绘制到画布并读取像素。
+// 浏览器 drawImage 缩小时会做高质量重采样，因此超大原图无需先生成全尺寸
+// getImageData（那是一次可能占用数十 MB 的同步取像素），直接缩小即可。
+function readScaled(img, maxDim) {
+  const naturalW = img.naturalWidth || img.width;
+  const naturalH = img.naturalHeight || img.height;
+  const scale = Math.min(1, maxDim / Math.max(naturalW, naturalH));
+  const w = Math.max(1, Math.round(naturalW * scale));
+  const h = Math.max(1, Math.round(naturalH * scale));
   const canvas = document.createElement('canvas');
-  canvas.width = img.naturalWidth || img.width;
-  canvas.height = img.naturalHeight || img.height;
+  canvas.width = w;
+  canvas.height = h;
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
-  ctx.drawImage(img, 0, 0);
-  return ctx.getImageData(0, 0, canvas.width, canvas.height);
-}
-
-function downsample(imgData, maxDim) {
-  const { width, height } = imgData;
-  const scale = Math.min(1, maxDim / Math.max(width, height));
-  if (scale >= 1) return imgData;
-  const w = Math.max(1, Math.round(width * scale));
-  const h = Math.max(1, Math.round(height * scale));
-  // 先将完整原图绘制到全尺寸画布，再缩放到目标尺寸，
-  // 避免 putImageData 直接写入小画布导致仅保留左上角裁剪区域。
-  const src = document.createElement('canvas');
-  src.width = width;
-  src.height = height;
-  src.getContext('2d').putImageData(imgData, 0, 0);
-
-  const dst = document.createElement('canvas');
-  dst.width = w;
-  dst.height = h;
-  const dctx = dst.getContext('2d', { willReadFrequently: true });
-  dctx.drawImage(src, 0, 0, width, height, 0, 0, w, h);
-  return dctx.getImageData(0, 0, w, h);
+  ctx.drawImage(img, 0, 0, w, h);
+  return ctx.getImageData(0, 0, w, h);
 }
 
 // 原生 BarcodeDetector（Chrome/Edge）对真实拍摄照片鲁棒性最高，优先尝试
@@ -53,11 +40,10 @@ const yieldToUI = () => new Promise((r) => setTimeout(r, 0));
 // jsQR 多尺度 + 多反转组合遍历。候选按面积从小到大排列，
 // 优先跑缩小图（更快又不失识别率），原图最后兜底，且每轮之间让出主线程。
 async function tryJsQR(img) {
-  const original = toImageData(img);
   const candidates = [
-    downsample(original, 640),
-    downsample(original, 1024),
-    original,
+    readScaled(img, 640),
+    readScaled(img, 1024),
+    readScaled(img, Infinity),
   ];
 
   for (const c of candidates) {

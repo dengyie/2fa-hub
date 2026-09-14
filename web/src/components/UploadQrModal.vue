@@ -41,6 +41,8 @@ async function onFile(ev) {
     preview.value = entry;
   } catch (err) {
     error.value = `解析失败：${err.message}。请上传清晰的 2FA 二维码截图。`;
+    // 解码失败不展示预览，立即释放 blob URL，避免二次选图前悬挂占用
+    revokeObjUrl();
   } finally {
     scanning.value = false;
   }
