@@ -11,16 +11,25 @@ export function getTurnstileConfig() {
   let siteKey = getSetting('turnstile_sitekey', config.turnstileSiteKey);
   let secretKey = getSetting('turnstile_secretkey', config.turnstileSecretKey);
 
-  // 若启用 Turnstile 但尚未配置自定义密钥，回退至 Cloudflare 官方「始终通过」测试公私钥即开即用
-  if (enabled && (!siteKey || !secretKey)) {
-    siteKey = siteKey || '1x00000000000000000000AA';
-    secretKey = secretKey || '1x0000000000000000000000000000000AA';
+  // 启用但未配置专属密钥 → 不降级为 CF「始终通过」测试钥（那等于人人可过）。
+  // fail-closed：enabled=false 并给出原因，管理 UI 据此标红，绝不静默放行（2FAuth 之坑）。
+  if (!siteKey || !secretKey) {
+    if (enabled) {
+      return {
+        enabled: false,
+        siteKey: siteKey || '',
+        secretKey: '',
+        warning: '已启用人机验证但未配置 Sitekey/Secret Key，验证已实际停用；请在系统设置中配置专属密钥。',
+      };
+    }
+    return { enabled: false, siteKey: '', secretKey: '', warning: '' };
   }
 
   return {
-    enabled: Boolean(enabled && siteKey && secretKey),
-    siteKey: siteKey || '',
-    secretKey: secretKey || '',
+    enabled: Boolean(enabled),
+    siteKey,
+    secretKey,
+    warning: '',
   };
 }
 

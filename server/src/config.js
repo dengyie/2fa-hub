@@ -43,6 +43,9 @@ export const config = {
   cookieSameSite: process.env.COOKIE_SAMESITE || 'Strict',
   // 前后端分离部署时：允许的前端来源（逗号分隔的精确 origin，如 https://2fa.example.com）
   allowedOrigins: (process.env.ALLOWED_ORIGINS || '').split(',').map((s) => s.trim()).filter(Boolean),
+  // 可信反代：仅当本服务位于同机/可信反代（Caddy/nginx）之后才设 1，
+  // 开启后客户端 IP 取 X-Forwarded-For 最右一个非可信跳；默认不信任（防伪造头绕过限流）
+  trustProxy: process.env.TRUST_PROXY === '1',
   staticDir: process.env.STATIC_DIR || path.resolve(process.cwd(), 'web/dist'),
   bodyLimit: 1024 * 1024,
 };

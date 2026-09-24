@@ -100,6 +100,27 @@ function applyCors(req, headers) {
   return true;
 }
 
+/** IPv6-mapped IPv4（::ffff:a.b.c.d）归一为 a.b.c.d：双栈监听时 socket 地址是 mapped 形式，
+ *  不归一则限流/审计 key 会随监听 family 漂移（127.0.0.1 与 ::ffff:127.0.0.1 成两个桶） */
+function normalizeIp(ip) {
+  return ip.startsWith('::ffff:') ? ip.slice(7) : ip;
+}
+
+/** 客户端真实 IP：TRUST_PROXY=1（可信反代之后）时取 X-Forwarded-For 最右一个非回环/非内网跳，
+ *  否则一律用 socket 地址——不信任请求头，防止伪造 XFF 绕过限流与审计。 */
+function clientIp(req) {
+  if (!config.trustProxy) return normalizeIp(req.socket.remoteAddress || '');
+  const chain = String(req.headers['x-forwarded-for'] || '')
+    .split(',').map((s) => s.trim()).filter(Boolean);
+  for (let i = chain.length - 1; i >= 0; i--) {
+    const ip = normalizeIp(chain[i]);
+    if (!(ip === '127.0.0.1' || ip === '::1' || ip.startsWith('127.') || ip.startsWith('10.') || ip.startsWith('192.168.') || ip.startsWith('169.254.') || ip === 'localhost')) {
+      return ip;
+    }
+  }
+  return normalizeIp(req.socket.remoteAddress || '');
+}
+
 /** 创建 HTTP 服务：API 交给 router；配置了 STATIC_DIR 时附带静态托管（SPA 回退），否则纯 API */
 export function createAppServer(router, { staticDir, bodyLimit }) {
   const hasStatic = staticDir && existsSync(join(staticDir, 'index.html'));
@@ -125,11 +146,12 @@ export function createAppServer(router, { staticDir, bodyLimit }) {
       path: url.pathname,
       query: url.searchParams,
       params: {},
-      ip: req.socket.remoteAddress || '',
+      ip: clientIp(req),
       ua: req.headers['user-agent'] || '',
       body: null,
       json(status, data) {
         headers['Content-Type'] = 'application/json; charset=utf-8';
+        headers['Cache-Control'] = 'no-store'; // API 响应（尤其 /api/entries/full）绝不允许任何缓存层落盘
         res.writeHead(status, headers);
         if (req.method === 'HEAD') {
           res.end();

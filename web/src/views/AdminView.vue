@@ -17,6 +17,7 @@ const turnstileEnabled = ref(true);
 const turnstileSiteKey = ref('');
 const turnstileSecretKey = ref('');
 const hasTurnstileSecretKey = ref(false);
+const turnstileWarning = ref('');
 const settingsSaved = ref(false);
 const savingSettings = ref(false);
 
@@ -47,6 +48,7 @@ async function loadSettings() {
     turnstileEnabled.value = Boolean(s.turnstile_enabled);
     turnstileSiteKey.value = s.turnstile_sitekey || '';
     hasTurnstileSecretKey.value = Boolean(s.has_turnstile_secretkey);
+    turnstileWarning.value = s.turnstile_warning || '';
   } catch (err) {
     console.warn('Failed to load admin settings:', err);
   }
@@ -70,6 +72,7 @@ async function saveSettings() {
     turnstileEnabled.value = Boolean(res.turnstile_enabled);
     turnstileSiteKey.value = res.turnstile_sitekey;
     hasTurnstileSecretKey.value = Boolean(res.has_turnstile_secretkey);
+    turnstileWarning.value = res.turnstile_warning || '';
     turnstileSecretKey.value = '';
     settingsSaved.value = true;
     setTimeout(() => (settingsSaved.value = false), 3000);
@@ -258,6 +261,11 @@ const actionBtn = 'rounded-lg border border-zinc-300 dark:border-zinc-700 px-2.5
             <input type="checkbox" v-model="turnstileEnabled" class="sr-only peer" />
             <div class="w-11 h-6 bg-zinc-300 peer-focus:outline-none rounded-full peer dark:bg-zinc-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-zinc-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
           </label>
+        </div>
+
+        <div v-if="turnstileEnabled && turnstileWarning" class="flex items-start gap-2 rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 py-2.5 text-[12px] text-amber-700 dark:text-amber-300">
+          <UiIcon name="circle-x" size="14" class="mt-0.5 shrink-0" />
+          <span>{{ turnstileWarning }}</span>
         </div>
 
         <div v-if="turnstileEnabled" class="space-y-3.5 pt-2 border-t border-zinc-200/60 dark:border-zinc-800/60">

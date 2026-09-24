@@ -1,4 +1,5 @@
 // 认证路由：注册（首位用户自动管理员）/ 登录 / 登出 / 当前用户 / 改密
+import { timingSafeEqual } from 'node:crypto';
 import { db, getSetting, audit } from '../db.js';
 import { hashPassword, verifyPassword, signToken, verifyToken, sessionExpiry } from '../crypto.js';
 import { HttpError } from '../http.js';
@@ -8,6 +9,14 @@ import { getTurnstileConfig, verifyTurnstile } from '../turnstile.js';
 
 export const COOKIE_NAME = 'otk_session';
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/** 长度恒定的字符串比较（防时序侧信道），不等长直接判否 */
+function timingSafeEq(a, b) {
+  const ab = Buffer.from(a);
+  const bb = Buffer.from(b);
+  if (ab.length !== bb.length) return false;
+  return timingSafeEqual(ab, bb);
+}
 
 export function cookieHeader(token, maxAgeSeconds) {
   const parts = [
@@ -50,7 +59,9 @@ export function registerAuthRoutes(router) {
       if (mode === 'invite') {
         // 邀请码只经环境变量配置（INVITE_CODE）；未配置时视为关闭注册，避免"锁死"假象
         const expected = getSetting('invite_code', config.inviteCode);
-        if (!expected || ctx.body?.invite_code !== expected) throw new HttpError(403, 'invalid invite code');
+        if (!expected || !timingSafeEq(String(ctx.body?.invite_code || ''), String(expected))) {
+          throw new HttpError(403, 'invalid invite code');
+        }
       }
     }
     // Cloudflare Turnstile 人机验证校验（启用时防刷号与自动化攻击）
@@ -86,8 +97,10 @@ export function registerAuthRoutes(router) {
 
   router.post('/api/auth/login', async (ctx) => {
     const { email, password } = ctx.body || {};
-    const key = `login:${ctx.ip}:${String(email || '').toLowerCase()}`;
-    if (!allow(key, 10, 5 * 60_000)) throw new HttpError(429, 'too many attempts, try later');
+    const em = String(email || '').toLowerCase();
+    // 双闸：per-(ip,email) 针对单账号撞库；per-IP 总闸针对跨账号密码喷洒（IP 由 TRUST_PROXY 决定，见 http.js）
+    if (!allow(`login:${ctx.ip}:${em}`, 10, 5 * 60_000)) throw new HttpError(429, 'too many attempts, try later');
+    if (!allow(`login-ip:${ctx.ip}`, 30, 5 * 60_000)) throw new HttpError(429, 'too many attempts, try later');
     const user = db.prepare('SELECT * FROM users WHERE email = ?').get(String(email || ''));
     // 统一失败响应，防账号枚举
     const fail = () => {
@@ -96,7 +109,8 @@ export function registerAuthRoutes(router) {
     };
     if (!user || !verifyPassword(String(password || ''), user.password_hash)) fail();
     if (!user.is_active) throw new HttpError(403, 'account disabled, contact admin');
-    reset(key);
+    reset(`login:${ctx.ip}:${em}`);
+    reset(`login-ip:${ctx.ip}`);
     issueSession(ctx, user);
     audit(user.id, 'login', '', ctx.ip, ctx.ua);
     ctx.json(200, { user: publicUser(user) });

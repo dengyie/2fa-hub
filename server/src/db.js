@@ -47,8 +47,16 @@ CREATE TABLE IF NOT EXISTS settings (
 );
 `);
 
-// 审计日志保留期：启动时清理 90 天前的记录，防止表无限增长
-db.prepare(`DELETE FROM audit WHERE created_at < datetime('now', '-90 days')`).run();
+// 审计日志保留期：启动时清理 90 天前的记录，并每 24h 定时清理（长驻进程表不能无限增长）
+export function cleanupAudit() {
+  db.prepare(`DELETE FROM audit WHERE created_at < datetime('now', '-90 days')`).run();
+}
+
+export function scheduleAuditCleanup() {
+  cleanupAudit();
+  const timer = setInterval(cleanupAudit, 24 * 3600_000);
+  timer.unref(); // 不阻止进程退出
+}
 
 export function getSetting(key, fallback = null) {
   const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key);

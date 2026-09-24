@@ -33,7 +33,10 @@ const localEntries = ref([]);
 const showMigrateBanner = ref(false);
 
 onMounted(async () => {
-  v.reload().catch((e) => { if (e.status === 401) location.href = '/login'; });
+  v.reload().catch((e) => {
+    if (e.status === 401) location.href = '/login';
+    else v.showToast(`加载失败：${e.message}`, true);
+  });
   try {
     const isDismissed = sessionStorage.getItem('2fahub.local.migrate_dismissed');
     const isMigrated = localStorage.getItem('2fahub.local.migrated');

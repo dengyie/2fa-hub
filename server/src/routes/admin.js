@@ -24,22 +24,26 @@ export function registerAdminRoutes(router) {
     const target = db.prepare('SELECT * FROM users WHERE id = ?').get(Number(ctx.params.id));
     if (!target) throw new HttpError(404, 'user not found');
     const b = ctx.body || {};
-    if (target.id === ctx.user.id && (b.is_active === false || b.is_admin === false)) {
+    if (target.id === ctx.user.id && ((b.is_active !== undefined && !b.is_active) || (b.is_admin !== undefined && !b.is_admin))) {
       throw new HttpError(400, 'cannot disable or demote yourself');
     }
+    // 严格布尔归一：字符串 "false" / 0 / undefined 语义各不相同，不得真值短路
     if (b.is_active !== undefined) {
+      const active = b.is_active === true || b.is_active === 1;
       db.prepare('UPDATE users SET is_active = ?, updated_at = datetime(\'now\') WHERE id = ?')
-        .run(b.is_active ? 1 : 0, target.id);
-      audit(ctx.user.id, 'admin_set_active', `user=${target.id} active=${!!b.is_active}`, ctx.ip, ctx.ua);
+        .run(active ? 1 : 0, target.id);
+      audit(ctx.user.id, 'admin_set_active', `user=${target.id} active=${active}`, ctx.ip, ctx.ua);
     }
     if (b.is_admin !== undefined) {
+      const admin = b.is_admin === true || b.is_admin === 1;
       db.prepare('UPDATE users SET is_admin = ?, updated_at = datetime(\'now\') WHERE id = ?')
-        .run(b.is_admin ? 1 : 0, target.id);
-      audit(ctx.user.id, 'admin_set_admin', `user=${target.id} admin=${!!b.is_admin}`, ctx.ip, ctx.ua);
+        .run(admin ? 1 : 0, target.id);
+      audit(ctx.user.id, 'admin_set_admin', `user=${target.id} admin=${admin}`, ctx.ip, ctx.ua);
     }
     if (b.name !== undefined) {
       db.prepare('UPDATE users SET name = ?, updated_at = datetime(\'now\') WHERE id = ?')
         .run(String(b.name).slice(0, 50), target.id);
+      audit(ctx.user.id, 'admin_rename', `user=${target.id} name=${String(b.name).slice(0, 50)}`, ctx.ip, ctx.ua);
     }
     if (b.password !== undefined) {
       if (String(b.password).length < 8) throw new HttpError(400, 'password must be at least 8 characters');
@@ -70,6 +74,7 @@ export function registerAdminRoutes(router) {
       turnstile_enabled: turnstileCfg.enabled,
       turnstile_sitekey: turnstileCfg.siteKey,
       has_turnstile_secretkey: Boolean(turnstileCfg.secretKey),
+      turnstile_warning: turnstileCfg.warning || '',
     });
   });
 
@@ -103,6 +108,7 @@ export function registerAdminRoutes(router) {
       turnstile_enabled: turnstileCfg.enabled,
       turnstile_sitekey: turnstileCfg.siteKey,
       has_turnstile_secretkey: Boolean(turnstileCfg.secretKey),
+      turnstile_warning: turnstileCfg.warning || '',
     });
   });
 

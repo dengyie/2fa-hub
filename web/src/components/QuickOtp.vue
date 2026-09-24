@@ -36,12 +36,13 @@ function toggleAutoCopy() {
   emit('toast', autoCopy.value ? '已开启自动复制验证码' : '已关闭自动复制');
 }
 
-// 临时算码历史记录（保留最近 5 条于 localStorage）
+// 临时算码历史记录（保留最近 5 条于 sessionStorage —— 会话级，关页面即销毁，
+// 临时验码不应在磁盘留下永久明文；如需保存请用「存入本地」进入保险库）
 const history = ref([]);
 
 function loadHistory() {
   try {
-    const raw = localStorage.getItem('2fahub.quick_history');
+    const raw = sessionStorage.getItem('2fahub.quick_history');
     if (raw) history.value = JSON.parse(raw);
   } catch {
     history.value = [];
@@ -62,18 +63,18 @@ function pushHistory(entry) {
     time: Date.now(),
   });
   history.value = list.slice(0, 5);
-  localStorage.setItem('2fahub.quick_history', JSON.stringify(history.value));
+  sessionStorage.setItem('2fahub.quick_history', JSON.stringify(history.value));
 }
 
 function removeHistoryItem(secret) {
   history.value = history.value.filter((h) => h.secret !== secret);
-  localStorage.setItem('2fahub.quick_history', JSON.stringify(history.value));
+  sessionStorage.setItem('2fahub.quick_history', JSON.stringify(history.value));
   emit('toast', '已移除该条历史记录');
 }
 
 function clearHistory() {
   history.value = [];
-  localStorage.removeItem('2fahub.quick_history');
+  sessionStorage.removeItem('2fahub.quick_history');
   emit('toast', '已清空最近验码记录');
 }
 

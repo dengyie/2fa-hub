@@ -88,6 +88,20 @@ test('login failures are uniform (no enumeration); rate limited', async () => {
   assert.equal(r.status, 429);
 });
 
+test('per-IP login spray limit: distinct accounts from one IP get blocked', async () => {
+  // 密码喷洒闸：同一 IP 换着账号试，30 次后必须 429（不受 per-account 桶影响）
+  const c = client();
+  let sprayed = 429;
+  for (let i = 0; i < 40; i++) {
+    const r = await c.req('POST', '/api/auth/login', { email: `spray${i}@test.io`, password: 'wrongwrong' });
+    if (r.status === 429) { sprayed = i; break; }
+  }
+  assert.ok(sprayed <= 30, `per-IP bucket should trip within 30 attempts, tripped at ${sprayed}`);
+  // 测试共享 127.0.0.1，必须清掉 per-IP 桶，否则后续用例的登录全被本闸 429
+  const { reset } = await import('../src/limiter.js');
+  reset('login-ip:127.0.0.1');
+});
+
 test('entry CRUD + secret never stored in plaintext', async () => {
   const c = client();
   await c.req('POST', '/api/auth/login', { email: 'user@test.io', password: 'password456' });

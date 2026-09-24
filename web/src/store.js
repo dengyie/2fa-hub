@@ -9,12 +9,13 @@ export const store = reactive({
 // 同域部署留空；跨域时后端需设 ALLOWED_ORIGINS + COOKIE_SAMESITE=None + COOKIE_SECURE=1
 export const API_BASE = import.meta.env.VITE_API_BASE || '';
 
-export async function api(path, { method = 'GET', body } = {}) {
+export async function api(path, { method = 'GET', body, timeoutMs = 15000 } = {}) {
   const res = await fetch(API_BASE + path, {
     method,
     headers: body ? { 'Content-Type': 'application/json', 'X-Requested-With': '2fa-hub' } : { 'X-Requested-With': '2fa-hub' },
     body: body ? JSON.stringify(body) : undefined,
     credentials: 'include',
+    signal: AbortSignal.timeout(timeoutMs), // 后端挂起时超时中断，避免 spinner 永转
   });
   const data = res.headers.get('content-type')?.includes('json') ? await res.json() : null;
   if (!res.ok) {
