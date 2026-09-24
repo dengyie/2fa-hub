@@ -30,6 +30,8 @@ test('enabled but unconfigured → fail-closed (no silent CF test-key downgrade)
 
 test('enabled with explicit CF test keys works end-to-end (opt-in only)', async () => {
   // 管理员显式填入测试钥 = 自愿选择，行为不变；此用例依赖真实 Cloudflare 端点
+  // 自配全部状态（enabled + 密钥），不依赖前序用例遗留的 settings（单独运行必须可复现）
+  setSetting('turnstile_enabled', '1');
   setSetting('turnstile_sitekey', '1x00000000000000000000AA');
   setSetting('turnstile_secretkey', '1x0000000000000000000000000000000AA');
   const cfg = getTurnstileConfig();
@@ -40,6 +42,10 @@ test('enabled with explicit CF test keys works end-to-end (opt-in only)', async 
 });
 
 test('turnstile rejects empty or missing response token when enabled', async () => {
+  // 自配全部所需状态（enabled + 密钥），不依赖前一用例遗留的进程内 settings（单独运行必须可复现）
+  setSetting('turnstile_enabled', '1');
+  setSetting('turnstile_sitekey', '1x00000000000000000000AA');
+  setSetting('turnstile_secretkey', '1x0000000000000000000000000000000AA');
   const r1 = await verifyTurnstile('');
   assert.equal(r1.success, false);
   assert.ok(r1.errorCodes.includes('missing-input-response'));

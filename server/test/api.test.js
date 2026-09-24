@@ -102,6 +102,27 @@ test('per-IP login spray limit: distinct accounts from one IP get blocked', asyn
   reset('login-ip:127.0.0.1');
 });
 
+test('successful login does not reset the per-IP spray bucket', async () => {
+  // 根因回归：持有效凭证者借成功登录清零总闸 = 无限喷洒。29 次失败 + 1 次成功后，
+  // 第 30 次失败必须仍触发 429（login-ip 桶只随 5min 窗口过期，不被成功登录重置）
+  const { reset } = await import('../src/limiter.js');
+  reset('login:127.0.0.1:victim@test.io');
+  reset('login-ip:127.0.0.1');
+  const c = client();
+  for (let i = 0; i < 29; i++) {
+    const r = await c.req('POST', '/api/auth/login', { email: 'victim@test.io', password: 'wrongwrong' });
+    assert.ok([401, 429].includes(r.status), `fail #${i} must not 500`);
+  }
+  // 穿插一次成功登录（真实账号 user@test.io）
+  const ok = await c.req('POST', '/api/auth/login', { email: 'user@test.io', password: 'password456' });
+  assert.equal(ok.status, 200);
+  // 但成功前那次 allow 已把 login-ip 计到 30 —— 第 30 次失败会被 429 挡住
+  const r30 = await c.req('POST', '/api/auth/login', { email: 'victim@test.io', password: 'wrongwrong' });
+  assert.equal(r30.status, 429, 'per-IP bucket must survive a successful login');
+  reset('login:127.0.0.1:victim@test.io');
+  reset('login-ip:127.0.0.1');
+});
+
 test('entry CRUD + secret never stored in plaintext', async () => {
   const c = client();
   await c.req('POST', '/api/auth/login', { email: 'user@test.io', password: 'password456' });

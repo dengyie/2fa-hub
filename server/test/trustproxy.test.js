@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 
 process.env.COOKIE_SECURE = '0';
 process.env.PORT = '0';
-process.env.DATA_DIR = mkdtempSync((await import('node:os')).tmpdir() + '/2fa-hub-proxy-');
+process.env.DATA_DIR = mkdtempSync(tmpdir() + '/2fa-hub-proxy-');
 process.env.MASTER_KEY = 'a'.repeat(64);
 // 不设 TRUST_PROXY → 默认不信任
 

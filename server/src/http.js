@@ -102,21 +102,44 @@ function applyCors(req, headers) {
 
 /** IPv6-mapped IPv4（::ffff:a.b.c.d）归一为 a.b.c.d：双栈监听时 socket 地址是 mapped 形式，
  *  不归一则限流/审计 key 会随监听 family 漂移（127.0.0.1 与 ::ffff:127.0.0.1 成两个桶） */
-function normalizeIp(ip) {
+export function normalizeIp(ip) {
   return ip.startsWith('::ffff:') ? ip.slice(7) : ip;
+}
+
+/** 是否「本机/内网」地址，用于 X-Forwarded-For 链中跳过可信跳板。
+ *  覆盖 RFC 1918 全部三段（10/8、172.16/12、192.168/16）、CGNAT 100.64/10、
+ *  链路本地 169.254/16 与 ::1、IPv6 ULA fc00::/7、IPv4-mapped 回环——
+ *  漏掉任何一段都会让该段地址被当成客户端 IP，导致限流 key 碎片化、审计误归属。 */
+export function isPrivateIp(ip) {
+  if (ip === '127.0.0.1' || ip === '::1' || ip === 'localhost') return true;
+  if (ip.startsWith('::ffff:')) return isPrivateIp(ip.slice(7));
+  if (ip.startsWith('127.')) return true;
+  if (ip.startsWith('10.')) return true;
+  if (ip.startsWith('192.168.')) return true;
+  if (ip.startsWith('169.254.')) return true;
+  const p = ip.split('.');
+  // 172.16.0.0/12 与 100.64.0.0/10 只有点分 IPv4 才匹配
+  if (p.length === 4) {
+    const o1 = Number(p[0]), o2 = Number(p[1]);
+    if (o1 === 172 && o2 >= 16 && o2 <= 31) return true;
+    if (o1 === 100 && o2 >= 64 && o2 <= 127) return true;
+  }
+  // fc00::/7（含 fd00::/8 本地唯一地址）与 fe80::/10 链路本地
+  const hex2 = ip.slice(0, 2).toLowerCase();
+  if (hex2[0] === 'f' && 'cd'.includes(hex2[1])) return true; // fc.. / fd..
+  if (hex2 === 'fe' && '89ab'.includes(ip[2]?.toLowerCase() ?? '')) return true; // fe80..febf
+  return false;
 }
 
 /** 客户端真实 IP：TRUST_PROXY=1（可信反代之后）时取 X-Forwarded-For 最右一个非回环/非内网跳，
  *  否则一律用 socket 地址——不信任请求头，防止伪造 XFF 绕过限流与审计。 */
-function clientIp(req) {
+export function clientIp(req) {
   if (!config.trustProxy) return normalizeIp(req.socket.remoteAddress || '');
   const chain = String(req.headers['x-forwarded-for'] || '')
     .split(',').map((s) => s.trim()).filter(Boolean);
   for (let i = chain.length - 1; i >= 0; i--) {
     const ip = normalizeIp(chain[i]);
-    if (!(ip === '127.0.0.1' || ip === '::1' || ip.startsWith('127.') || ip.startsWith('10.') || ip.startsWith('192.168.') || ip.startsWith('169.254.') || ip === 'localhost')) {
-      return ip;
-    }
+    if (!isPrivateIp(ip)) return ip;
   }
   return normalizeIp(req.socket.remoteAddress || '');
 }

@@ -20,7 +20,7 @@ server.listen(config.port, host, () => {
   console.log(`[2fa-hub] listening on http://${host}:${config.port}`);
 });
 
-// 优雅停机：docker stop 先发 SIGTERM，关掉监听等在途请求收尾（10s 强杀兜底）
+// 优雅停机：docker stop 先发 SIGTERM，关掉监听等在途请求收尾（9s 强杀兜底，留 1s 余量给 SIGKILL 前）
 process.on('SIGTERM', () => {
   console.log('[2fa-hub] SIGTERM received, shutting down');
   server.close(() => process.exit(0));

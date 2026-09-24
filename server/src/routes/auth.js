@@ -109,8 +109,9 @@ export function registerAuthRoutes(router) {
     };
     if (!user || !verifyPassword(String(password || ''), user.password_hash)) fail();
     if (!user.is_active) throw new HttpError(403, 'account disabled, contact admin');
+    // 只重置 per-(ip,email) 撞库闸；per-IP 喷洒闸必须保留——持任一有效凭证的攻击者
+    // 若能借成功登录清零总闸，即可每 30 次穿插一次登录无限喷洒
     reset(`login:${ctx.ip}:${em}`);
-    reset(`login-ip:${ctx.ip}`);
     issueSession(ctx, user);
     audit(user.id, 'login', '', ctx.ip, ctx.ua);
     ctx.json(200, { user: publicUser(user) });
