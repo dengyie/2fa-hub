@@ -22,9 +22,34 @@ test('isPrivateIp: public addresses just outside every private range', () => {
     '172.32.0.1', '172.15.255.255', // 172.16/12 的两侧边界
     '100.0.0.1', '100.128.0.1',     // 100.64/10 的两侧边界
     '2606:4700::1', '2001:db8::1',  // 公网 IPv6
-    'fec0::1', 'ff02::1',           // 已废弃 site-local 与组播，不是内网跳
+    'fec0::1', 'fed0::1',           // 已废弃 site-local，不是链路本地
+    'fe00::1', 'fe70::1',           // fe80::/10 之下
+    'ff02::1',                      // 组播
   ];
   for (const ip of pub) assert.equal(isPrivateIp(ip), false, `${ip} must be public`);
+});
+
+test('isPrivateIp: malformed / hostile input must fail safe (public, not private)', () => {
+  // 判定原则：只有确认为已知私有段才 true。畸形跳若被判私有会被跳过，
+  // 攻击者注入的更左公网跳就会被当成客户端 IP（绕过限流、伪造审计）。
+  const malformed = [
+    '', '   ', '1234', '10',
+    '999.1.1.1', '999.abc.1.1', '1.2.3.256',
+    '172.16.0.1/32', '172.20.0.5/64', '10.0.0.1/8',        // 带 CIDR 后缀的伪造跳
+    'fe8::1', 'fe7f::1',                                    // 0fe8 前缀公网段（短写陷阱）
+    null, undefined,
+  ];
+  for (const ip of malformed) assert.equal(isPrivateIp(ip), false, `${String(ip)} must not be treated private`);
+});
+
+test('isPrivateIp: full fe80::/10 span and ULA, case-insensitive', () => {
+  for (const ip of ['fe80::1', 'fe90::1', 'fea0::1', 'feb0::1', 'febf::1']) {
+    assert.ok(isPrivateIp(ip), `${ip} in fe80::/10`);
+  }
+  for (const ip of ['FC00::1', 'FD00::1', 'FE80::1']) assert.ok(isPrivateIp(ip), `${ip} case-insensitive`);
+  // 短写陷阱反例：fe8f 前缀确实在 /10 内，fe8 前缀（=0fe8）不在
+  assert.ok(isPrivateIp('fe8f::1'));
+  assert.equal(isPrivateIp('fe8::1'), false);
 });
 
 test('normalizeIp strips IPv4-mapped prefix only', () => {

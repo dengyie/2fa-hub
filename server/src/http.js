@@ -107,27 +107,31 @@ export function normalizeIp(ip) {
 }
 
 /** 是否「本机/内网」地址，用于 X-Forwarded-For 链中跳过可信跳板。
- *  覆盖 RFC 1918 全部三段（10/8、172.16/12、192.168/16）、CGNAT 100.64/10、
- *  链路本地 169.254/16 与 ::1、IPv6 ULA fc00::/7、IPv4-mapped 回环——
- *  漏掉任何一段都会让该段地址被当成客户端 IP，导致限流 key 碎片化、审计误归属。 */
+ *  IPv4：回环 127/8、RFC1918（10/8、172.16/12、192.168/16）、CGNAT 100.64/10、链路本地 169.254/16；
+ *  IPv6：::1、fc00::/7（ULA）、fe80::/10（链路本地）。
+ *  判定原则：只有「确认为已知私有段」才返回 true；任何畸形/非法输入一律 false（当公网 IP 用）——
+ *  否则攻击者可注入畸形跳（如 fe8::1、172.16.0.1/32）骗过跳过逻辑，
+ *  把自己注入的更左公网跳当成客户端 IP，绕过限流、伪造审计归属。 */
 export function isPrivateIp(ip) {
-  if (ip === '127.0.0.1' || ip === '::1' || ip === 'localhost') return true;
-  if (ip.startsWith('::ffff:')) return isPrivateIp(ip.slice(7));
-  if (ip.startsWith('127.')) return true;
-  if (ip.startsWith('10.')) return true;
-  if (ip.startsWith('192.168.')) return true;
-  if (ip.startsWith('169.254.')) return true;
-  const p = ip.split('.');
-  // 172.16.0.0/12 与 100.64.0.0/10 只有点分 IPv4 才匹配
+  const v = normalizeIp(String(ip || ''));
+  if (v === '::1' || v === '::' || v === 'localhost') return true;
+  const p = v.split('.');
   if (p.length === 4) {
+    // 点分十进制必须合法（纯数字且每段 ≤255），否则不当私有（如 172.16.0.1/32）
+    if (!p.every((o) => /^\d{1,3}$/.test(o) && Number(o) <= 255)) return false;
     const o1 = Number(p[0]), o2 = Number(p[1]);
+    if (o1 === 127 || o1 === 10) return true;
+    if (o1 === 192 && o2 === 168) return true;
+    if (o1 === 169 && o2 === 254) return true;
     if (o1 === 172 && o2 >= 16 && o2 <= 31) return true;
     if (o1 === 100 && o2 >= 64 && o2 <= 127) return true;
+    return false;
   }
-  // fc00::/7（含 fd00::/8 本地唯一地址）与 fe80::/10 链路本地
-  const hex2 = ip.slice(0, 2).toLowerCase();
-  if (hex2[0] === 'f' && 'cd'.includes(hex2[1])) return true; // fc.. / fd..
-  if (hex2 === 'fe' && '89ab'.includes(ip[2]?.toLowerCase() ?? '')) return true; // fe80..febf
+  // IPv6：按首 hextet 数值判定，不依赖字符位置（fe8::1 这类短写会破坏位置启发）
+  const first = parseInt(v.split(':')[0], 16);
+  if (Number.isNaN(first)) return false;
+  if ((first & 0xfe00) === 0xfc00) return true; // fc00::/7 ULA（含 fd00::/8）
+  if ((first & 0xffc0) === 0xfe80) return true; // fe80::/10 链路本地
   return false;
 }
 
