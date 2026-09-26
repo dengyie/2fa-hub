@@ -52,8 +52,24 @@ test('isPrivateIp: full fe80::/10 span and ULA, case-insensitive', () => {
   assert.equal(isPrivateIp('fe8::1'), false);
 });
 
-test('normalizeIp strips IPv4-mapped prefix only', () => {
+test('normalizeIp handles brackets, ports, and mapped IPv4', () => {
   assert.equal(normalizeIp('::ffff:203.0.113.9'), '203.0.113.9');
   assert.equal(normalizeIp('2001:db8::1'), '2001:db8::1');
   assert.equal(normalizeIp('1.2.3.4'), '1.2.3.4');
+  assert.equal(normalizeIp('10.0.0.1:8080'), '10.0.0.1');
+  assert.equal(normalizeIp('203.0.113.195:44321'), '203.0.113.195');
+  assert.equal(normalizeIp('[fe80::1]'), 'fe80::1');
+  assert.equal(normalizeIp('[fe80::1]:8080'), 'fe80::1');
+  assert.equal(normalizeIp('[::ffff:10.0.0.1]:8080'), '10.0.0.1');
+  assert.equal(normalizeIp('[2001:db8::1]:443'), '2001:db8::1');
+});
+
+test('isPrivateIp recognizes private hops even with ports or brackets', () => {
+  assert.ok(isPrivateIp('10.0.0.1:8080'));
+  assert.ok(isPrivateIp('192.168.1.1:3000'));
+  assert.ok(isPrivateIp('[fe80::1]'));
+  assert.ok(isPrivateIp('[fe80::1]:80'));
+  assert.ok(isPrivateIp('[::ffff:127.0.0.1]:8080'));
+  assert.equal(isPrivateIp('203.0.113.195:44321'), false);
+  assert.equal(isPrivateIp('[2001:db8::1]:443'), false);
 });

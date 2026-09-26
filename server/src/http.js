@@ -100,10 +100,19 @@ function applyCors(req, headers) {
   return true;
 }
 
-/** IPv6-mapped IPv4（::ffff:a.b.c.d）归一为 a.b.c.d：双栈监听时 socket 地址是 mapped 形式，
- *  不归一则限流/审计 key 会随监听 family 漂移（127.0.0.1 与 ::ffff:127.0.0.1 成两个桶） */
+/** IP 规范化：
+ *  1. 剥离外层中括号（如 [2001:db8::1] 或 [::ffff:127.0.0.1]:8080）
+ *  2. 剥离端口号（如 10.0.0.1:8080 或 [fe80::1]:80，常见于某些反向代理生成的 XFF）
+ *  3. IPv6-mapped IPv4（::ffff:a.b.c.d）归一为 a.b.c.d：双栈监听时 socket 地址是 mapped 形式，
+ *     不归一则限流/审计 key 会随监听 family 漂移（127.0.0.1 与 ::ffff:127.0.0.1 成两个桶） */
 export function normalizeIp(ip) {
-  return ip.startsWith('::ffff:') ? ip.slice(7) : ip;
+  let s = String(ip || '').trim();
+  if (s.startsWith('[') && s.includes(']')) {
+    s = s.slice(1, s.indexOf(']'));
+  } else if (/^\d{1,3}(\.\d{1,3}){3}:\d+$/.test(s)) {
+    s = s.slice(0, s.lastIndexOf(':'));
+  }
+  return s.startsWith('::ffff:') ? s.slice(7) : s;
 }
 
 /** 是否「本机/内网」地址，用于 X-Forwarded-For 链中跳过可信跳板。

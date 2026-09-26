@@ -46,6 +46,34 @@ test('untrusted by default: forged X-Forwarded-For is ignored (socket IP wins)',
   }
 });
 
+test('clientIp unit: walks XFF right-to-left skipping private hops, handles ports/brackets', async () => {
+  const { clientIp } = await import('../src/http.js');
+  // 临时开启 trustProxy 进行逻辑校验
+  const oldVal = config.trustProxy;
+  config.trustProxy = true;
+  try {
+    const req1 = {
+      headers: { 'x-forwarded-for': '203.0.113.195:44321, 10.0.0.1:8080, [127.0.0.1]:80' },
+      socket: { remoteAddress: '127.0.0.1' },
+    };
+    assert.equal(clientIp(req1), '203.0.113.195');
+
+    const req2 = {
+      headers: { 'x-forwarded-for': '[2001:db8::1]:443, [fe80::1]:80' },
+      socket: { remoteAddress: '::1' },
+    };
+    assert.equal(clientIp(req2), '2001:db8::1');
+
+    const reqAllPriv = {
+      headers: { 'x-forwarded-for': '10.0.0.1, 192.168.1.1' },
+      socket: { remoteAddress: '::ffff:127.0.0.1' },
+    };
+    assert.equal(clientIp(reqAllPriv), '127.0.0.1');
+  } finally {
+    config.trustProxy = oldVal;
+  }
+});
+
 test.after(() => {
   server.close();
 });

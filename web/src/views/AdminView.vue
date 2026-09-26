@@ -292,7 +292,7 @@ const actionBtn = 'rounded-lg border border-zinc-300 dark:border-zinc-700 px-2.5
             />
           </div>
           <p class="text-[11px] text-zinc-400 dark:text-zinc-500 leading-relaxed">
-            提示：留空未配置时系统默认启用 Cloudflare 官方「始终通过」公开测试密钥（1x00...AA），可即开即用体验验证盾；在生产环境下建议填入在 Cloudflare 控制台申请的专属 Sitekey 与 Secret Key。
+            提示：启用验证盾需填入在 Cloudflare 控制台申请的专属 Sitekey 与 Secret Key；若启用但未配置有效密钥，系统将 fail-closed（停止放行未经验证的注册并显示警告），避免使用公开测试密钥产生虚假安全感。
           </p>
         </div>
       </div>
