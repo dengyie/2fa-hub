@@ -108,7 +108,7 @@ jobs:
 
   deploy:
     name: Deploy to VPS (google-vps-next)
-    needs: [docker]
+    needs: [docker, docker-smoke]
     if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
     runs-on: ubuntu-latest
     timeout-minutes: 10
