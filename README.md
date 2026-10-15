@@ -27,6 +27,7 @@ Most open-source authenticators force a choice: either everything lives in someo
 ## Features
 
 - TOTP / HOTP with SHA1/SHA256/SHA512, 6–10 digits, custom period & counter — **implementation verified against the official RFC 4226 / RFC 6238 test vectors**
+- **Agent Machine API** with scoped API keys for one-time-code retrieval, metadata read access, and entry CRUD; saved secrets are never returned by API v1
 - Live codes with countdown, one-tap copy, multi-device HOTP counter sync
 - Add entries by camera QR scan, QR image upload, pasting an `otpauth://` link, or manually
 - Import: **2FAS, Aegis (plaintext), Google Authenticator otpauth links, 2fa-hub JSON**
@@ -74,7 +75,7 @@ cd server && npm start            # http://127.0.0.1:8000
 # Frontend (hot reload, /api proxied to :8000; API_PROXY to change target)
 cd web && npm install && npm run dev
 
-# Tests (19 cases incl. official RFC vectors)
+# Tests (API integration and official RFC OTP vectors)
 cd server && npm test
 ```
 
@@ -98,6 +99,12 @@ COOKIE_SECURE=1
 
 Camera access for QR scanning is granted to whitelisted origins automatically via `Permissions-Policy`.
 
+## Agent API
+
+Sign in to the cloud vault and open **Agent API** to create a key. The recommended `code` tier is limited to selected entries; broader read and entry-management tiers are available separately. The plaintext key is shown once, the server stores only an HMAC digest, and revocation takes effect immediately. API v1 rejects cookies and never exposes saved secrets. A successful HOTP request consumes one counter; do not automatically retry after a timeout because the response may have been lost after the counter advanced. TOTP requests are safe to retry.
+
+See [docs/API.md](./docs/API.md) for scopes, endpoints, HOTP behavior, errors, and a curl example.
+
 ## ⚠️ Backup
 
 Both are required inside `DATA_DIR`:
@@ -113,7 +120,7 @@ Local-mode data lives in browser localStorage — export before clearing browser
 ├── shared/          # base32 / TOTP-HOTP / otpauth URI (shared FE+BE, RFC vector tests)
 ├── server/          # Node native ESM, zero runtime deps — pure JSON API (CORS whitelist)
 │   ├── src/         # config / crypto(AES-GCM+scrypt+HMAC) / db(SQLite) / http(router+CORS) / limiter
-│   │   └── routes/  # auth / entries / admin
+│   │   └── routes/  # auth / entries / admin / api-keys / api-v1
 │   └── test/        # node:test integration tests + RFC vectors
 ├── web/             # Vue 3 + Vite + Tailwind CSS v4 SPA (independently deployable)
 │   └── src/

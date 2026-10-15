@@ -11,6 +11,7 @@ import UploadQrModal from '../components/UploadQrModal.vue';
 import ImportModal from '../components/ImportModal.vue';
 import QrModal from '../components/QrModal.vue';
 import UiIcon from '../components/ui/UiIcon.vue';
+import ApiKeyPanel from '../components/ApiKeyPanel.vue';
 
 const now = useTicker();
 const backend = {
@@ -131,6 +132,7 @@ function doExport(kind) {
     <button class="flex items-center gap-1.5 rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 hover:border-blue-500 px-3.5 py-2 text-sm transition-colors" @click="uploadingQr = true">
       <UiIcon name="image" size="15" />上传二维码
     </button>
+    <ApiKeyPanel :entries="v.entries.value" />
     <button class="flex items-center gap-1.5 rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 hover:border-blue-500 px-3.5 py-2 text-sm transition-colors" @click="importing = true">
       <UiIcon name="upload" size="15" />导入
     </button>

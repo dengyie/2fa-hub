@@ -32,6 +32,19 @@ CREATE TABLE IF NOT EXISTS entries (
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_entries_user ON entries(user_id, sort);
+CREATE TABLE IF NOT EXISTS api_keys (
+  id         TEXT PRIMARY KEY,
+  user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  name       TEXT NOT NULL,
+  key_hash   TEXT NOT NULL UNIQUE,
+  key_prefix TEXT NOT NULL,
+  tier       TEXT NOT NULL CHECK (tier IN ('code', 'read', 'manage')),
+  entry_ids  TEXT, -- NULL = 全部当前及未来条目；JSON 数组 = 条目白名单
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  last_used_at TEXT,
+  revoked_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_api_keys_user ON api_keys(user_id, created_at DESC);
 CREATE TABLE IF NOT EXISTS audit (
   id         INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id    INTEGER,
@@ -72,4 +85,17 @@ export function setSetting(key, value) {
 export function audit(userId, action, detail = '', ip = '', ua = '') {
   db.prepare('INSERT INTO audit (user_id, action, detail, ip, ua) VALUES (?, ?, ?, ?, ?)')
     .run(userId ?? null, action, String(detail).slice(0, 500), String(ip).slice(0, 64), String(ua).slice(0, 200));
+}
+
+/** Run a synchronous set of SQLite writes atomically, acquiring the write lock before reading state. */
+export function transaction(callback) {
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    const result = callback();
+    db.exec('COMMIT');
+    return result;
+  } catch (err) {
+    try { db.exec('ROLLBACK'); } catch (rollbackError) { err.rollbackError = rollbackError; }
+    throw err;
+  }
 }

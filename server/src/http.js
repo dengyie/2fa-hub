@@ -100,6 +100,13 @@ function applyCors(req, headers) {
   return true;
 }
 
+function applyMachineCors(req, headers) {
+  if (!req.url?.startsWith('/api/v1/')) return false;
+  headers['Access-Control-Allow-Origin'] = '*';
+  headers['Vary'] = 'Origin';
+  return true;
+}
+
 /** IP 规范化：
  *  1. 剥离外层中括号（如 [2001:db8::1] 或 [::ffff:127.0.0.1]:8080）
  *  2. 剥离端口号（如 10.0.0.1:8080 或 [fe80::1]:80，常见于某些反向代理生成的 XFF）
@@ -166,7 +173,8 @@ export function createAppServer(router, { staticDir, bodyLimit }) {
   return createServer(async (req, res) => {
     const url = new URL(req.url, 'http://localhost');
     const headers = { ...securityHeaders() };
-    applyCors(req, headers);
+    const machineApi = applyMachineCors(req, headers);
+    if (!machineApi) applyCors(req, headers);
     // 预检请求短路
     if (req.method === 'OPTIONS' && url.pathname.startsWith('/api/')) {
       headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, PATCH, DELETE, OPTIONS';
@@ -202,7 +210,7 @@ export function createAppServer(router, { staticDir, bodyLimit }) {
     try {
       if (ctx.path.startsWith('/api/')) {
         // CSRF 防线：浏览器表单/no-cors fetch 无法携带自定义头（SameSite=None 跨站部署时的关键防护）
-        if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method) && !req.headers['x-requested-with']) {
+        if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method) && !machineApi && !req.headers['x-requested-with']) {
           throw new HttpError(403, 'missing X-Requested-With header');
         }
         if (req.method !== 'GET' && req.method !== 'HEAD' && req.method !== 'DELETE') {

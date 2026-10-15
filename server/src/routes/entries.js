@@ -18,7 +18,7 @@ function entryRow(e) {
   };
 }
 
-function validateEntry(body) {
+export function validateEntry(body) {
   let secret;
   try { secret = normalizeBase32(body.secret); } catch (err) { throw new HttpError(400, `invalid secret: ${err.message}`); }
   const type = body.type === 'hotp' ? 'hotp' : 'totp';
@@ -33,6 +33,58 @@ function validateEntry(body) {
     period: clampPeriod(body.period),
     counter: Math.max(0, Math.floor(Number(body.counter) || 0)),
   };
+}
+
+const MACHINE_ENTRY_FIELDS = new Set([
+  'label', 'issuer', 'secret', 'type', 'algorithm', 'digits', 'period', 'counter',
+]);
+
+/** Strict validation for Machine API payloads; browser form coercion stays in validateEntry. */
+export function validateMachineEntry(body, { current = {} } = {}) {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    throw new HttpError(400, 'entry body must be an object');
+  }
+  const unknownField = Object.keys(body).find((field) => !MACHINE_ENTRY_FIELDS.has(field));
+  if (unknownField) throw new HttpError(400, `unknown entry field: ${unknownField}`);
+
+  const value = (field, fallback) => Object.hasOwn(body, field)
+    ? body[field]
+    : current[field] ?? fallback;
+  const label = value('label', '');
+  const issuer = value('issuer', '');
+  const type = value('type', 'totp');
+  const algorithm = value('algorithm', 'SHA1');
+  const digits = value('digits', 6);
+  const period = value('period', 30);
+  const counter = value('counter', 0);
+  const rawSecret = value('secret', undefined);
+
+  if (typeof label !== 'string' || label.length > 120) {
+    throw new HttpError(400, 'label must be a string up to 120 characters');
+  }
+  if (typeof issuer !== 'string' || issuer.length > 120) {
+    throw new HttpError(400, 'issuer must be a string up to 120 characters');
+  }
+  if (type !== 'totp' && type !== 'hotp') throw new HttpError(400, 'type must be totp or hotp');
+  if (!ALGORITHMS.includes(algorithm)) throw new HttpError(400, 'algorithm must be SHA1, SHA256, or SHA512');
+  if (!Number.isInteger(digits) || digits < 6 || digits > 10) {
+    throw new HttpError(400, 'digits must be an integer from 6 to 10');
+  }
+  if (!Number.isInteger(period) || period < 7 || period > 120) {
+    throw new HttpError(400, 'period must be an integer from 7 to 120');
+  }
+  if (!Number.isSafeInteger(counter) || counter < 0 || counter >= Number.MAX_SAFE_INTEGER) {
+    throw new HttpError(400, 'counter must be a non-negative integer below the HOTP safe increment limit');
+  }
+  if (typeof rawSecret !== 'string') throw new HttpError(400, 'secret must be a base32 string');
+
+  let secret;
+  try { secret = normalizeBase32(rawSecret); } catch (err) {
+    throw new HttpError(400, `invalid secret: ${err.message}`);
+  }
+  if (secret.length < 8) throw new HttpError(400, 'secret too short');
+
+  return { label, issuer, secret, type, algorithm, digits, period, counter };
 }
 
 function getOwnedEntry(ctx) {

@@ -21,6 +21,7 @@
 
 - TOTP / HOTP，SHA1/SHA256/SHA512，6–10 位，自定义周期与计数器（实现通过 RFC 4226 / 6238 官方测试向量验证）
 - 实时出码 + 倒计时 + 一键复制 + HOTP 计数器多端同步
+- **Agent Machine API**：API key 权限分级；可按 key/条目限制实时取码，也可授权只读或条目 CRUD；永不通过 API 返回已保存的 secret
 - 摄像头扫码 / 二维码图片识别 / 粘贴 `otpauth://` 链接 / 手工录入
 - 导入：**2FAS、Aegis（明文）、Google Authenticator otpauth 链接、2fa-hub JSON**
 - 导出：JSON（含 secret）与 otpauth 链接列表，随时迁出，绝不锁定用户
@@ -62,7 +63,7 @@ cd server && npm start          # http://127.0.0.1:8000
 # 前端（热更新，代理 /api 到 8000；API_PROXY 可改后端地址）
 cd web && npm install && npm run dev
 
-# 测试（19 个用例，含 RFC 官方测试向量）
+# 测试（API 集成测试与 RFC 官方 OTP 向量）
 cd server && npm test
 ```
 
@@ -89,6 +90,12 @@ COOKIE_SECURE=1
 - CORS 仅精确白名单命中才回 `Access-Control-Allow-Origin`（带 credentials）
 - 摄像头扫码权限自动随白名单下放（`Permissions-Policy: camera=(self) <origins>`）
 
+## Agent API
+
+登录云端保险库后打开 **Agent API** 创建 key。推荐为 Agent 创建仅限指定条目的「出码」key；如确有需要，再选择「只读 + 出码」或「条目管理 + 出码」。明文 key 仅在创建时展示一次，服务端只保存 HMAC 摘要；撤销后立即失效。API v1 不接受 Cookie，不提供读取 secret 的接口，所有返回均禁止缓存。HOTP 请求成功会消耗一个计数器；请求超时后不要自动重试，因为服务端可能已推进计数器但响应丢失。TOTP 请求可以安全重试。
+
+接口、权限 scope、HOTP 消费语义和 curl 示例见 [docs/API.md](./docs/API.md)。
+
 ## ⚠️ 备份
 
 `DATA_DIR` 下两样东西缺一不可：
@@ -106,7 +113,7 @@ COOKIE_SECURE=1
 ├── shared/          # base32 / TOTP-HOTP / otpauth URI（前后端共用，RFC 向量测试）
 ├── server/          # Node 原生 ESM，零运行时依赖 —— 纯 JSON API（CORS 白名单）
 │   ├── src/         # config / crypto(AES-GCM+scrypt+HMAC) / db(SQLite) / http(路由+CORS) / limiter
-│   │   └── routes/  # auth / entries / admin
+│   │   └── routes/  # auth / entries / admin / api-keys / api-v1
 │   └── test/        # node:test 集成测试 + RFC 向量
 ├── web/             # Vue 3 + Vite + Tailwind CSS v4 SPA（独立部署）
 │   └── src/
@@ -116,6 +123,8 @@ COOKIE_SECURE=1
 │       └── lib/         # localvault(WebCrypto) / formats(导入导出) / useVault
 └── Dockerfile       # 多阶段构建，单容器（API + 内置 dist）
 ```
+
+Machine API 权限模型和端点细节：[docs/API.md](./docs/API.md)。
 
 UI 基于 [awesome-ui](https://github.com/dengyie/awesome-ui) 标准组件装配：全局图标统一走 `UiIcon`（Tabler 规范几何），主题切换 `ThemeToggle`（亮/暗/跟随系统），管理面板健康徽章 `StatusIndicator`。
 

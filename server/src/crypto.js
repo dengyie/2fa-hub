@@ -1,6 +1,6 @@
 // 服务端密码学：AES-256-GCM 落盘加密、scrypt 口令哈希、HMAC 签名会话令牌。
 // 全部基于 node:crypto 原语，不引入第三方依赖，不自造算法。
-import { createCipheriv, createDecipheriv, createHmac, hkdfSync, randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
+import { createCipheriv, createDecipheriv, createHmac, hkdfSync, randomBytes, randomUUID, scryptSync, timingSafeEqual } from 'node:crypto';
 import { config } from './config.js';
 
 const master = Buffer.from(config.masterKey, 'hex');
@@ -8,6 +8,34 @@ const master = Buffer.from(config.masterKey, 'hex');
 // 密钥分离：落盘加密与会话签名用不同子密钥（HKDF）
 const encKey = Buffer.from(hkdfSync('sha256', master, Buffer.alloc(0), '2fa-hub/enc/v1', 32));
 const sessionKey = Buffer.from(hkdfSync('sha256', master, Buffer.alloc(0), '2fa-hub/session/v1', 32));
+const apiKeyHashKey = Buffer.from(hkdfSync('sha256', master, Buffer.alloc(0), '2fa-hub/api-key-hmac/v1', 32));
+
+/** 创建仅展示一次的 API key；数据库仅保存带独立 pepper 的 HMAC 摘要。 */
+export function createApiKey() {
+  const id = randomUUID();
+  const value = `2fh_live_${id}_${randomBytes(32).toString('base64url')}`;
+  return {
+    id,
+    value,
+    hash: hashApiKey(value),
+    prefix: value.slice(0, 20),
+  };
+}
+
+export function hashApiKey(value) {
+  return createHmac('sha256', apiKeyHashKey).update(String(value)).digest('hex');
+}
+
+export function verifyApiKey(value, storedHash) {
+  const actual = Buffer.from(hashApiKey(value), 'hex');
+  const expected = Buffer.from(String(storedHash || ''), 'hex');
+  return actual.length === expected.length && timingSafeEqual(actual, expected);
+}
+
+export function apiKeyIdFromToken(value) {
+  const match = /^2fh_live_([0-9a-f-]{36})_[A-Za-z0-9_-]{43}$/.exec(String(value || ''));
+  return match?.[1] || null;
+}
 
 /** AES-256-GCM 加密 → "v1.<iv>.<ct>.<tag>"（base64url） */
 export function encryptSecret(plaintext) {

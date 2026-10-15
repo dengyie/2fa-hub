@@ -16,12 +16,16 @@ const { Router } = await import('../src/http.js');
 const { registerAuthRoutes, userCount } = await import('../src/routes/auth.js');
 const { registerEntryRoutes } = await import('../src/routes/entries.js');
 const { registerAdminRoutes } = await import('../src/routes/admin.js');
+const { registerApiKeyRoutes } = await import('../src/routes/api-keys.js');
+const { registerApiV1Routes } = await import('../src/routes/api-v1.js');
 
 const router = new Router();
 router.get('/api/health', async (ctx) => ctx.json(200, { ok: true }));
 registerAuthRoutes(router);
 registerEntryRoutes(router);
 registerAdminRoutes(router);
+registerApiKeyRoutes(router);
+registerApiV1Routes(router);
 const server = createAppServer(router, { staticDir: config.dataDir, bodyLimit: config.bodyLimit });
 await new Promise((r) => server.listen(0, r));
 const base = `http://127.0.0.1:${server.address().port}`;
@@ -293,6 +297,363 @@ test('audit log records security events', async () => {
 test('unauthenticated access to entries rejected', async () => {
   assert.equal((await client().req('GET', '/api/entries/full')).status, 401);
   assert.equal((await client().req('GET', '/api/admin/users')).status, 401);
+});
+
+test('scoped API keys provide code, read, and manage tiers without secret reads', async () => {
+  const user = client();
+  await user.req('POST', '/api/auth/login', { email: 'user@test.io', password: 'newpassword99' });
+  const full = await user.req('GET', '/api/entries/full');
+  const entryId = full.json.entries.find((e) => e.type === 'totp').id;
+  const hotpId = full.json.entries.find((e) => e.type === 'hotp').id;
+
+  const codeKeyRes = await user.req('POST', '/api/keys', { name: 'agent code', tier: 'code', entry_ids: [entryId] });
+  assert.equal(codeKeyRes.status, 201);
+  assert.match(codeKeyRes.json.value, /^2fh_live_/);
+  assert.equal(db.prepare('SELECT key_hash FROM api_keys WHERE id = ?').get(codeKeyRes.json.key.id).key_hash.includes(codeKeyRes.json.value), false);
+  const codeHeaders = { Authorization: `Bearer ${codeKeyRes.json.value}` };
+  const codeRes = await fetch(base + `/api/v1/entries/${entryId}/code`, { headers: codeHeaders });
+  assert.equal(codeRes.status, 200);
+  const codeJson = await codeRes.json();
+  assert.match(codeJson.code, /^\d{6}$/);
+  assert.equal(codeRes.headers.get('cache-control'), 'no-store');
+  assert.equal((await fetch(base + '/api/v1/entries', { headers: codeHeaders })).status, 403);
+  assert.equal((await fetch(base + `/api/v1/entries/${entryId}`, { headers: codeHeaders })).status, 403);
+
+  // Browser session cookies cannot be used to cross the machine API boundary.
+  assert.equal((await user.req('GET', `/api/v1/entries/${entryId}/code`)).status, 401);
+
+  const readKeyRes = await user.req('POST', '/api/keys', { name: 'agent read', tier: 'read', entry_ids: null });
+  assert.equal(readKeyRes.status, 201);
+  const readHeaders = { Authorization: `Bearer ${readKeyRes.json.value}` };
+  const listRes = await fetch(base + '/api/v1/entries', { headers: readHeaders });
+  assert.equal(listRes.status, 200);
+  const listJson = await listRes.json();
+  assert.ok(listJson.entries.length >= 1);
+  assert.equal(Object.hasOwn(listJson.entries[0], 'secret'), false);
+  const detailRes = await fetch(base + `/api/v1/entries/${entryId}`, { headers: readHeaders });
+  assert.equal(detailRes.status, 200);
+  assert.equal(Object.hasOwn((await detailRes.json()).entry, 'secret'), false);
+
+  const hotpKeyRes = await user.req('POST', '/api/keys', { name: 'agent HOTP', tier: 'code', entry_ids: [hotpId] });
+  const hotpBefore = db.prepare('SELECT counter FROM entries WHERE id = ?').get(hotpId).counter;
+  const hotpRes = await fetch(base + `/api/v1/entries/${hotpId}/code`, {
+    headers: { Authorization: `Bearer ${hotpKeyRes.json.value}` },
+  });
+  assert.equal(hotpRes.status, 200);
+  const hotpJson = await hotpRes.json();
+  assert.equal(hotpJson.type, 'hotp');
+  assert.equal(hotpJson.counter, hotpBefore);
+  assert.equal(db.prepare('SELECT counter FROM entries WHERE id = ?').get(hotpId).counter, hotpBefore + 1);
+
+  const manageKeyRes = await user.req('POST', '/api/keys', { name: 'agent manage', tier: 'manage', entry_ids: null });
+  assert.equal(manageKeyRes.status, 201);
+  const manageHeaders = {
+    Authorization: `Bearer ${manageKeyRes.json.value}`,
+    'Content-Type': 'application/json',
+  };
+  const createRes = await fetch(base + '/api/v1/entries', {
+    method: 'POST', headers: manageHeaders,
+    body: JSON.stringify({ issuer: 'API', label: 'agent', secret: 'JBSWY3DPEHPK3PXP' }),
+  });
+  assert.equal(createRes.status, 201);
+  const createdId = (await createRes.json()).id;
+  const updateRes = await fetch(base + `/api/v1/entries/${createdId}`, {
+    method: 'PUT', headers: manageHeaders,
+    body: JSON.stringify({ label: 'agent-updated' }),
+  });
+  assert.equal(updateRes.status, 200);
+  assert.equal((await fetch(base + `/api/v1/entries/${createdId}`, { method: 'DELETE', headers: manageHeaders })).status, 200);
+
+  assert.equal((await user.req('DELETE', `/api/keys/${codeKeyRes.json.key.id}`)).status, 200);
+  assert.equal((await fetch(base + `/api/v1/entries/${entryId}/code`, { headers: codeHeaders })).status, 401);
+});
+
+test('HOTP code claim does not mix an old secret with a concurrently updated entry', async () => {
+  const user = client();
+  await user.req('POST', '/api/auth/login', { email: 'user@test.io', password: 'newpassword99' });
+  const full = await user.req('GET', '/api/entries/full');
+  const entry = full.json.entries.find((e) => e.type === 'hotp');
+  const keyRes = await user.req('POST', '/api/keys', { name: 'race-test', tier: 'code', entry_ids: [entry.id] });
+  const headers = { Authorization: `Bearer ${keyRes.json.value}` };
+  const before = db.prepare('SELECT * FROM entries WHERE id = ?').get(entry.id);
+  const newSecret = 'MFRGGZDFMZTWQ2LK';
+  const originalSign = crypto.subtle.sign;
+  let entered;
+  const enteredPromise = new Promise((resolve) => { entered = resolve; });
+  let release;
+  const releasePromise = new Promise((resolve) => { release = resolve; });
+  let held = true;
+  crypto.subtle.sign = async (...args) => {
+    if (held) {
+      held = false;
+      entered();
+      await releasePromise;
+    }
+    return originalSign.call(crypto.subtle, ...args);
+  };
+  try {
+    const pending = fetch(base + `/api/v1/entries/${entry.id}/code`, { headers });
+    await enteredPromise;
+    const update = await user.req('PUT', `/api/entries/${entry.id}`, {
+      secret: newSecret, type: 'hotp', counter: before.counter,
+    });
+    assert.equal(update.status, 200);
+    release();
+    const response = await pending;
+    assert.equal(response.status, 200);
+    const payload = await response.json();
+    const expected = await (await import('../../shared/otp.js')).generateOtp({
+      secret: newSecret, type: 'hotp', algorithm: before.algorithm,
+      digits: before.digits, counter: before.counter,
+    });
+    assert.equal(payload.code, expected.code);
+    assert.equal(payload.counter, before.counter);
+    assert.equal(db.prepare('SELECT counter FROM entries WHERE id = ?').get(entry.id).counter, before.counter + 1);
+  } finally {
+    release();
+    crypto.subtle.sign = originalSign;
+  }
+});
+
+test('API key and entry mutations roll back when their audit write fails', async () => {
+  const user = client();
+  await user.req('POST', '/api/auth/login', { email: 'user@test.io', password: 'newpassword99' });
+  const userId = db.prepare('SELECT id FROM users WHERE email = ?').get('user@test.io').id;
+  const activeKeysBefore = db.prepare(
+    'SELECT COUNT(*) AS n FROM api_keys WHERE user_id = ? AND revoked_at IS NULL',
+  ).get(userId).n;
+
+  db.exec(`CREATE TRIGGER fail_api_key_audit BEFORE INSERT ON audit
+    WHEN NEW.action = 'api_key_create' BEGIN SELECT RAISE(ABORT, 'forced audit failure'); END`);
+  try {
+    const failedKey = await user.req('POST', '/api/keys', { name: 'audit-failure', tier: 'read', entry_ids: null });
+    assert.equal(failedKey.status, 500);
+    assert.equal(db.prepare(
+      'SELECT COUNT(*) AS n FROM api_keys WHERE user_id = ? AND revoked_at IS NULL',
+    ).get(userId).n, activeKeysBefore);
+  } finally {
+    db.exec('DROP TRIGGER IF EXISTS fail_api_key_audit');
+  }
+
+  const full = await user.req('GET', '/api/entries/full');
+  const existingEntry = full.json.entries.find((entry) => entry.type === 'totp');
+  const keyRes = await user.req('POST', '/api/keys', {
+    name: 'entry-audit-failure', tier: 'manage', entry_ids: [existingEntry.id],
+  });
+  const entryCountBefore = db.prepare('SELECT COUNT(*) AS n FROM entries WHERE user_id = ?').get(userId).n;
+  const scopeBefore = db.prepare('SELECT entry_ids FROM api_keys WHERE id = ?').get(keyRes.json.key.id).entry_ids;
+  db.exec(`CREATE TRIGGER fail_api_entry_audit BEFORE INSERT ON audit
+    WHEN NEW.action = 'api_entry_create' BEGIN SELECT RAISE(ABORT, 'forced audit failure'); END`);
+  try {
+    const failedEntry = await fetch(base + '/api/v1/entries', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${keyRes.json.value}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ label: 'rolled back', secret: 'JBSWY3DPEHPK3PXP' }),
+    });
+    assert.equal(failedEntry.status, 500);
+    assert.equal(db.prepare('SELECT COUNT(*) AS n FROM entries WHERE user_id = ?').get(userId).n, entryCountBefore);
+    assert.equal(db.prepare('SELECT entry_ids FROM api_keys WHERE id = ?').get(keyRes.json.key.id).entry_ids, scopeBefore);
+  } finally {
+    db.exec('DROP TRIGGER IF EXISTS fail_api_entry_audit');
+    db.prepare('UPDATE api_keys SET revoked_at = datetime(\'now\') WHERE id = ?').run(keyRes.json.key.id);
+  }
+});
+
+test('HOTP claims, entry edits, and key revocations roll back when audit writes fail', async () => {
+  const user = client();
+  await user.req('POST', '/api/auth/login', { email: 'user@test.io', password: 'newpassword99' });
+  const full = await user.req('GET', '/api/entries/full');
+  const hotp = full.json.entries.find((entry) => entry.type === 'hotp');
+  const totp = full.json.entries.find((entry) => entry.type === 'totp');
+  const codeKey = await user.req('POST', '/api/keys', {
+    name: 'code-audit-failure', tier: 'code', entry_ids: [hotp.id],
+  });
+  const beforeCounter = db.prepare('SELECT counter FROM entries WHERE id = ?').get(hotp.id).counter;
+  db.exec(`CREATE TRIGGER fail_api_code_audit BEFORE INSERT ON audit
+    WHEN NEW.action = 'api_code' BEGIN SELECT RAISE(ABORT, 'forced audit failure'); END`);
+  try {
+    const response = await fetch(base + `/api/v1/entries/${hotp.id}/code`, {
+      headers: { Authorization: `Bearer ${codeKey.json.value}` },
+    });
+    assert.equal(response.status, 500);
+    assert.equal(db.prepare('SELECT counter FROM entries WHERE id = ?').get(hotp.id).counter, beforeCounter);
+  } finally {
+    db.exec('DROP TRIGGER IF EXISTS fail_api_code_audit');
+  }
+
+  const manageKey = await user.req('POST', '/api/keys', {
+    name: 'edit-audit-failure', tier: 'manage', entry_ids: [totp.id],
+  });
+  const headers = { Authorization: `Bearer ${manageKey.json.value}`, 'Content-Type': 'application/json' };
+  db.exec(`CREATE TRIGGER fail_api_entry_update_audit BEFORE INSERT ON audit
+    WHEN NEW.action = 'api_entry_update' BEGIN SELECT RAISE(ABORT, 'forced audit failure'); END`);
+  try {
+    const response = await fetch(base + `/api/v1/entries/${totp.id}`, {
+      method: 'PUT', headers, body: JSON.stringify({ label: 'must roll back' }),
+    });
+    assert.equal(response.status, 500);
+    assert.equal(db.prepare('SELECT label FROM entries WHERE id = ?').get(totp.id).label, totp.label);
+  } finally {
+    db.exec('DROP TRIGGER IF EXISTS fail_api_entry_update_audit');
+  }
+
+  db.exec(`CREATE TRIGGER fail_api_entry_delete_audit BEFORE INSERT ON audit
+    WHEN NEW.action = 'api_entry_delete' BEGIN SELECT RAISE(ABORT, 'forced audit failure'); END`);
+  try {
+    const response = await fetch(base + `/api/v1/entries/${totp.id}`, { method: 'DELETE', headers });
+    assert.equal(response.status, 500);
+    assert.ok(db.prepare('SELECT id FROM entries WHERE id = ?').get(totp.id));
+  } finally {
+    db.exec('DROP TRIGGER IF EXISTS fail_api_entry_delete_audit');
+  }
+
+  const revokeKey = await user.req('POST', '/api/keys', {
+    name: 'revoke-audit-failure', tier: 'read', entry_ids: null,
+  });
+  db.exec(`CREATE TRIGGER fail_api_key_revoke_audit BEFORE INSERT ON audit
+    WHEN NEW.action = 'api_key_revoke' BEGIN SELECT RAISE(ABORT, 'forced audit failure'); END`);
+  try {
+    const response = await user.req('DELETE', `/api/keys/${revokeKey.json.key.id}`);
+    assert.equal(response.status, 500);
+    assert.equal(db.prepare('SELECT revoked_at FROM api_keys WHERE id = ?').get(revokeKey.json.key.id).revoked_at, null);
+  } finally {
+    db.exec('DROP TRIGGER IF EXISTS fail_api_key_revoke_audit');
+    await user.req('DELETE', `/api/keys/${revokeKey.json.key.id}`);
+    await user.req('DELETE', `/api/keys/${manageKey.json.key.id}`);
+    await user.req('DELETE', `/api/keys/${codeKey.json.key.id}`);
+  }
+});
+
+test('HEAD and unsafe HOTP counters do not consume a code counter', async () => {
+  const user = client();
+  await user.req('POST', '/api/auth/login', { email: 'user@test.io', password: 'newpassword99' });
+  const full = await user.req('GET', '/api/entries/full');
+  const entry = full.json.entries.find((e) => e.type === 'hotp');
+  const keyRes = await user.req('POST', '/api/keys', { name: 'head-boundary', tier: 'code', entry_ids: [entry.id] });
+  const headers = { Authorization: `Bearer ${keyRes.json.value}` };
+
+  const initialCounter = db.prepare('SELECT counter FROM entries WHERE id = ?').get(entry.id).counter;
+  const head = await fetch(base + `/api/v1/entries/${entry.id}/code`, { method: 'HEAD', headers });
+  assert.equal(head.status, 405);
+  assert.equal(db.prepare('SELECT counter FROM entries WHERE id = ?').get(entry.id).counter, initialCounter);
+
+  const limit = Number.MAX_SAFE_INTEGER;
+  db.prepare('UPDATE entries SET counter = ? WHERE id = ?').run(limit, entry.id);
+  const exhausted = await fetch(base + `/api/v1/entries/${entry.id}/code`, { headers });
+  assert.equal(exhausted.status, 409);
+  assert.equal(db.prepare('SELECT counter FROM entries WHERE id = ?').get(entry.id).counter, limit);
+
+  db.prepare('UPDATE entries SET counter = ? WHERE id = ?').run(limit - 1, entry.id);
+  const finalSafe = await fetch(base + `/api/v1/entries/${entry.id}/code`, { headers });
+  assert.equal(finalSafe.status, 200);
+  assert.equal(db.prepare('SELECT counter FROM entries WHERE id = ?').get(entry.id).counter, limit);
+  assert.equal((await fetch(base + `/api/v1/entries/${entry.id}/code`, { headers })).status, 409);
+});
+
+test('Machine API rejects invalid entry fields instead of silently coercing them', async () => {
+  const user = client();
+  await user.req('POST', '/api/auth/login', { email: 'user@test.io', password: 'newpassword99' });
+  const full = await user.req('GET', '/api/entries/full');
+  const entry = full.json.entries.find((e) => e.type === 'hotp');
+  const keyRes = await user.req('POST', '/api/keys', { name: 'strict-test', tier: 'manage', entry_ids: [entry.id] });
+  const headers = { Authorization: `Bearer ${keyRes.json.value}`, 'Content-Type': 'application/json' };
+  const cases = [
+    null, {}, { type: 'HOTP' }, { algorithm: 'MD5' }, { digits: 'oops' },
+    { period: 1 }, { counter: -1 }, { counter: Number.MAX_SAFE_INTEGER },
+    { ignored: true },
+  ];
+  for (const body of cases) {
+    const response = await fetch(base + `/api/v1/entries/${entry.id}`, {
+      method: 'PUT', headers, body: JSON.stringify(body),
+    });
+    assert.equal(response.status, 400, JSON.stringify(body));
+  }
+  const after = db.prepare('SELECT type, algorithm, digits, period, counter FROM entries WHERE id = ?').get(entry.id);
+  assert.equal(after.type, 'hotp');
+  assert.equal(after.algorithm, entry.algorithm);
+  assert.equal(after.digits, entry.digits);
+  assert.equal(after.period, entry.period);
+  assert.equal(after.counter, entry.counter);
+
+  const createCases = [
+    null, { secret: 'JBSWY3DPEHPK3PXP', type: 'HOTP' },
+    { secret: 'JBSWY3DPEHPK3PXP', algorithm: 'sha1' },
+    { secret: 'JBSWY3DPEHPK3PXP', digits: '6' },
+    { secret: 'JBSWY3DPEHPK3PXP', period: 6 },
+    { secret: 'JBSWY3DPEHPK3PXP', counter: -1 },
+    { secret: 'JBSWY3DPEHPK3PXP', counter: Number.MAX_SAFE_INTEGER },
+  ];
+  for (const body of createCases) {
+    const response = await fetch(base + '/api/v1/entries', {
+      method: 'POST', headers, body: JSON.stringify(body),
+    });
+    assert.equal(response.status, 400, JSON.stringify(body));
+  }
+});
+
+test('invalid Machine API keys do not consume valid-key quota and limits return 429', async () => {
+  const { reset } = await import('../src/limiter.js');
+  reset('api-v1-invalid-auth:127.0.0.1');
+  reset('api-v1-ip:127.0.0.1');
+  const user = client();
+  await user.req('POST', '/api/auth/login', { email: 'user@test.io', password: 'newpassword99' });
+  const full = await user.req('GET', '/api/entries/full');
+  const entryId = full.json.entries.find((e) => e.type === 'totp').id;
+  const keyRes = await user.req('POST', '/api/keys', { name: 'quota-test', tier: 'read', entry_ids: null });
+  const headers = { Authorization: `Bearer ${keyRes.json.value}` };
+  const invalid = `2fh_live_00000000-0000-0000-0000-000000000000_${'a'.repeat(43)}`;
+  for (let i = 0; i < 120; i++) {
+    const response = await fetch(base + '/api/v1/entries', { headers: { Authorization: `Bearer ${invalid}` } });
+    assert.equal(response.status, 401);
+  }
+  assert.equal((await fetch(base + '/api/v1/entries', {
+    headers: { Authorization: `Bearer ${invalid}` },
+  })).status, 429);
+  const valid = await fetch(base + `/api/v1/entries/${entryId}`, { headers });
+  assert.equal(valid.status, 200);
+
+  reset('api-v1-ip:127.0.0.1');
+  reset(`api-v1-key:${keyRes.json.key.id}`);
+  for (let i = 0; i < 120; i++) {
+    const response = await fetch(base + `/api/v1/entries/${entryId}`, { headers });
+    assert.equal(response.status, 200);
+  }
+  const limited = await fetch(base + `/api/v1/entries/${entryId}`, { headers });
+  assert.equal(limited.status, 429);
+  reset('api-v1-ip:127.0.0.1');
+  reset(`api-v1-key:${keyRes.json.key.id}`);
+  reset('api-v1-invalid-auth:127.0.0.1');
+});
+
+test('Machine API enforces owner state, CORS preflight, and active-key cap', async () => {
+  const user = client();
+  await user.req('POST', '/api/auth/login', { email: 'user@test.io', password: 'newpassword99' });
+  db.prepare(`UPDATE api_keys SET revoked_at = datetime('now')
+    WHERE user_id = (SELECT id FROM users WHERE email = ?) AND revoked_at IS NULL`).run('user@test.io');
+  const full = await user.req('GET', '/api/entries/full');
+  const entryId = full.json.entries.find((e) => e.type === 'totp').id;
+  const first = await user.req('POST', '/api/keys', { name: 'cap-0', tier: 'code', entry_ids: [entryId] });
+  const preflight = await fetch(base + '/api/v1/entries', {
+    method: 'OPTIONS', headers: { Origin: 'https://agent.example', 'Access-Control-Request-Method': 'GET' },
+  });
+  assert.equal(preflight.status, 204);
+  assert.equal(preflight.headers.get('access-control-allow-origin'), '*');
+  const concurrentCreates = await Promise.all(Array.from({ length: 19 }, (_, index) =>
+    user.req('POST', '/api/keys', { name: `cap-${index + 1}`, tier: 'code', entry_ids: [entryId] })));
+  assert.ok(concurrentCreates.every((response) => response.status === 201));
+  assert.equal((await user.req('POST', '/api/keys', { name: 'cap-over', tier: 'code', entry_ids: [entryId] })).status, 400);
+  const row = db.prepare('SELECT user_id FROM api_keys WHERE id = ?').get(first.json.key.id);
+  try {
+    db.prepare('UPDATE users SET is_active = 0 WHERE id = ?').run(row.user_id);
+    const inactive = await fetch(base + `/api/v1/entries/${entryId}/code`, { headers: { Authorization: `Bearer ${first.json.value}` } });
+    assert.equal(inactive.status, 401);
+  } finally {
+    db.prepare('UPDATE users SET is_active = 1 WHERE id = ?').run(row.user_id);
+    db.prepare("UPDATE api_keys SET revoked_at = datetime('now') WHERE user_id = ? AND revoked_at IS NULL").run(row.user_id);
+  }
 });
 
 test.after(() => {

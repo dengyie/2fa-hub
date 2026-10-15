@@ -3,6 +3,8 @@ import { Router, createAppServer } from './http.js';
 import { registerAuthRoutes } from './routes/auth.js';
 import { registerEntryRoutes } from './routes/entries.js';
 import { registerAdminRoutes } from './routes/admin.js';
+import { registerApiKeyRoutes } from './routes/api-keys.js';
+import { registerApiV1Routes } from './routes/api-v1.js';
 import { scheduleAuditCleanup } from './db.js';
 
 scheduleAuditCleanup();
@@ -12,6 +14,8 @@ router.get('/api/health', async (ctx) => ctx.json(200, { ok: true }));
 registerAuthRoutes(router);
 registerEntryRoutes(router);
 registerAdminRoutes(router);
+registerApiKeyRoutes(router);
+registerApiV1Routes(router);
 
 const server = createAppServer(router, { staticDir: config.staticDir, bodyLimit: config.bodyLimit });
 // 默认仅绑回环（HOST 未设时）；确需对外监听必须显式 HOST=0.0.0.0
