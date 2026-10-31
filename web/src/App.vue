@@ -43,12 +43,14 @@ async function logout() {
     >
       <div class="flex items-center gap-3 mr-auto">
         <router-link
-          class="flex items-center gap-2 group text-base sm:text-lg font-bold tracking-tight select-none focus:outline-none"
+          class="flex items-center gap-2.5 group text-base sm:text-lg font-bold tracking-tight select-none focus:outline-none"
           to="/"
         >
-          <div class="w-7 h-7 sm:w-8 sm:h-8 rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-500 text-white flex items-center justify-center shadow-[0_2px_10px_rgba(37,99,235,0.35),inset_0_1px_1px_rgba(255,255,255,0.6)] group-hover:scale-105 transition-transform">
-            <UiIcon name="shield" size="16" />
-          </div>
+          <img
+            src="/logo.png"
+            alt="2fa-hub Logo"
+            class="w-7 h-7 sm:w-8 sm:h-8 rounded-xl object-contain drop-shadow-[0_2px_8px_rgba(245,158,11,0.3)] group-hover:scale-105 transition-transform select-none"
+          />
           <span class="text-zinc-900 dark:text-zinc-100">2fa<span class="text-blue-600 dark:text-blue-400 font-extrabold">-hub</span></span>
         </router-link>
       </div>

@@ -83,8 +83,8 @@ async function submit() {
 <template>
   <div class="max-w-sm mx-auto mt-[6vh] sm:mt-[8vh]">
     <div class="text-center mb-6">
-      <div class="w-12 h-12 rounded-2xl bg-gradient-to-tr from-blue-600 to-indigo-500 text-white flex items-center justify-center mx-auto mb-3 shadow-[0_4px_16px_rgba(37,99,235,0.35),inset_0_1px_1px_rgba(255,255,255,0.6)]">
-        <UiIcon name="shield" size="24" />
+      <div class="w-16 h-16 rounded-3xl bg-white/70 dark:bg-white/5 border border-white/60 dark:border-white/10 p-2.5 flex items-center justify-center mx-auto mb-3.5 shadow-[0_8px_24px_rgba(245,158,11,0.25),inset_0_1px_1px_rgba(255,255,255,0.8)] backdrop-blur-md">
+        <img src="/logo.png" alt="2fa-hub Logo" class="w-full h-full object-contain drop-shadow-sm select-none" />
       </div>
       <h1 class="text-2xl font-bold tracking-tight text-zinc-900 dark:text-zinc-100">
         2fa<span class="text-blue-600 dark:text-blue-400 font-extrabold">-hub</span>
