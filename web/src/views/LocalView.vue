@@ -1,7 +1,7 @@
 <script setup>
 // 本地模式（游客）：条目只存本机浏览器 localStorage，绝不经过网络。
 // 可选口令加密整库（PBKDF2 + AES-GCM）。
-import { ref, onMounted } from 'vue';
+import { ref, computed, onMounted } from 'vue';
 import { store } from '../store.js';
 import { useVault, useTicker } from '../lib/useVault.js';
 import { loadLocalVault, saveLocalVault, wipeLocalVault } from '../lib/localvault.js';
@@ -24,6 +24,7 @@ const encrypted = ref(false);
 const unlockPass = ref('');
 const newPass = ref('');
 const showLockPanel = ref(false);
+const activeFilter = ref('all');
 
 const backend = {
   async load() {
@@ -52,7 +53,20 @@ const backend = {
 
 const v = useVault(backend);
 
-// 快速算码一键存入本地
+const totpCount = computed(() => v.entries.value.filter((e) => (e.type || 'totp') === 'totp').length);
+const hotpCount = computed(() => v.entries.value.filter((e) => e.type === 'hotp').length);
+
+const displayList = computed(() => {
+  let list = v.filtered.value;
+  if (activeFilter.value === 'totp') {
+    list = list.filter((e) => (e.type || 'totp') === 'totp');
+  } else if (activeFilter.value === 'hotp') {
+    list = list.filter((e) => e.type === 'hotp');
+  }
+  return list;
+});
+
+// 快速在线算码一键存入本地
 async function handleQuickSave(e) {
   await v.saveEntry(e);
 }
@@ -184,7 +198,7 @@ const uploadingQr = ref(false);
             class="glass-input w-full"
           />
         </div>
-        <button type="submit" class="glass-btn-primary w-full py-2.5 text-sm">
+        <button type="submit" class="glass-btn-primary w-full py-2.5 text-sm cursor-pointer">
           解锁保险库
         </button>
       </form>
@@ -196,27 +210,84 @@ const uploadingQr = ref(false);
     <!-- ⚡️ 快速在线算码组件 -->
     <QuickOtp :now="now" class="my-3.5" @save-entry="handleQuickSave" @toast="v.showToast" />
 
+    <!-- 顶部状态 Ribbon：本地保险库标题、离线加密状态、条目统计与分类筛选 -->
+    <div class="flex items-center justify-between flex-wrap gap-3 my-4.5 px-1">
+      <div>
+        <div class="flex items-center gap-2.5">
+          <h2 class="text-xl sm:text-2xl font-extrabold tracking-tight text-zinc-900 dark:text-zinc-100">
+            本地条目库
+          </h2>
+          <span
+            class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold"
+            :class="encrypted
+              ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20'
+              : 'bg-zinc-500/10 text-zinc-600 dark:text-zinc-400 border border-zinc-500/20'"
+          >
+            <span class="w-1.5 h-1.5 rounded-full" :class="encrypted ? 'bg-emerald-500 animate-pulse' : 'bg-zinc-400'"></span>
+            {{ encrypted ? 'PBKDF2 加密保护' : '离线明文存储' }}
+          </span>
+        </div>
+        <p class="text-xs text-zinc-500 dark:text-zinc-400 mt-1">
+          当前本地已存 {{ v.entries.value.length }} 个密钥
+          <span v-if="v.search.value" class="text-blue-500 font-semibold">（搜索匹配 {{ displayList.length }} 项）</span>
+        </p>
+      </div>
+
+      <!-- 分段切换药丸（全部 / TOTP / HOTP） -->
+      <div v-if="v.entries.value.length > 0" class="flex items-center gap-1 p-1 rounded-2xl bg-black/5 dark:bg-white/5 border border-white/60 dark:border-white/10 backdrop-blur-sm text-xs font-semibold">
+        <button
+          class="px-3 py-1 rounded-xl transition-all cursor-pointer"
+          :class="activeFilter === 'all' ? 'bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 shadow-xs' : 'text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-200'"
+          @click="activeFilter = 'all'"
+        >
+          全部 ({{ v.entries.value.length }})
+        </button>
+        <button
+          class="px-3 py-1 rounded-xl transition-all cursor-pointer"
+          :class="activeFilter === 'totp' ? 'bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 shadow-xs' : 'text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-200'"
+          @click="activeFilter = 'totp'"
+        >
+          TOTP ({{ totpCount }})
+        </button>
+        <button
+          v-if="hotpCount > 0"
+          class="px-3 py-1 rounded-xl transition-all cursor-pointer"
+          :class="activeFilter === 'hotp' ? 'bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 shadow-xs' : 'text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-200'"
+          @click="activeFilter = 'hotp'"
+        >
+          HOTP ({{ hotpCount }})
+        </button>
+      </div>
+    </div>
+
     <!-- 悬浮操作工具栏 (Liquid Glass Toolbar) -->
-    <div class="flex gap-2.5 mb-4 flex-wrap items-center">
+    <div class="flex gap-2.5 mb-5 flex-wrap items-center">
       <div class="relative flex-1 min-w-[180px]">
         <UiIcon name="search" size="15" class="absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-400 pointer-events-none" />
         <input
           v-model="v.search.value"
           placeholder="搜索服务 / 账户…"
-          class="glass-input w-full pl-9 pr-3.5 py-2 text-sm"
+          class="glass-input w-full pl-9 pr-8 py-2 text-sm"
         />
+        <button
+          v-if="v.search.value"
+          class="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 p-0.5 rounded-md"
+          @click="v.search.value = ''"
+        >
+          <UiIcon name="x" size="14" />
+        </button>
       </div>
-      <button class="glass-btn-primary flex items-center gap-1.5 px-4 py-2 text-sm" @click="editing = {}">
+      <button class="glass-btn-primary flex items-center gap-1.5 px-4 py-2 text-sm cursor-pointer" @click="editing = {}">
         <UiIcon name="plus" size="15" />添加
       </button>
-      <button class="glass-btn flex items-center gap-1.5 px-3.5 py-2 text-sm" @click="uploadingQr = true">
+      <button class="glass-btn flex items-center gap-1.5 px-3.5 py-2 text-sm cursor-pointer" @click="uploadingQr = true">
         <UiIcon name="image" size="15" />上传二维码
       </button>
-      <button class="glass-btn flex items-center gap-1.5 px-3.5 py-2 text-sm" @click="importing = true">
+      <button class="glass-btn flex items-center gap-1.5 px-3.5 py-2 text-sm cursor-pointer" @click="importing = true">
         <UiIcon name="upload" size="15" />导入
       </button>
       <div class="relative">
-        <button class="glass-btn flex items-center gap-1.5 px-3.5 py-2 text-sm" @click="showExport = !showExport">
+        <button class="glass-btn flex items-center gap-1.5 px-3.5 py-2 text-sm cursor-pointer" @click="showExport = !showExport">
           <UiIcon name="download" size="15" />导出
         </button>
         <LiquidGlass
@@ -224,17 +295,17 @@ const uploadingQr = ref(false);
           variant="none"
           intensity="thick"
           :interactive="false"
-          className="absolute right-0 top-full mt-2 z-20 rounded-2xl border border-white/60 dark:border-white/10 bg-white/90 dark:bg-zinc-900/90 shadow-2xl py-1.5 w-56 text-sm backdrop-blur-xl"
+          className="absolute right-0 top-full mt-2 z-20 rounded-2xl border border-white/70 dark:border-white/10 bg-white/95 dark:bg-zinc-900/95 shadow-2xl py-1.5 w-56 text-sm backdrop-blur-xl"
         >
-          <button class="w-full text-left px-4 py-2 hover:bg-white/60 dark:hover:bg-white/10 flex items-center gap-2 text-zinc-700 dark:text-zinc-200 transition-colors" @click="doExport('json')">
+          <button class="w-full text-left px-4 py-2 hover:bg-white/60 dark:hover:bg-white/10 flex items-center gap-2 text-zinc-700 dark:text-zinc-200 transition-colors cursor-pointer" @click="doExport('json')">
             <UiIcon name="download" size="14" />JSON（含 secret）
           </button>
-          <button class="w-full text-left px-4 py-2 hover:bg-white/60 dark:hover:bg-white/10 flex items-center gap-2 text-zinc-700 dark:text-zinc-200 transition-colors" @click="doExport('txt')">
+          <button class="w-full text-left px-4 py-2 hover:bg-white/60 dark:hover:bg-white/10 flex items-center gap-2 text-zinc-700 dark:text-zinc-200 transition-colors cursor-pointer" @click="doExport('txt')">
             <UiIcon name="download" size="14" />otpauth:// 链接
           </button>
         </LiquidGlass>
       </div>
-      <button class="glass-btn p-2" title="口令加密与本地数据管理" @click="showLockPanel = !showLockPanel">
+      <button class="glass-btn p-2 cursor-pointer" title="口令加密与本地数据管理" @click="showLockPanel = !showLockPanel">
         <UiIcon name="lock" size="16" />
       </button>
     </div>
@@ -245,26 +316,26 @@ const uploadingQr = ref(false);
       variant="none"
       intensity="light"
       :interactive="false"
-      className="flex gap-2.5 mb-4 flex-wrap items-center rounded-2xl border border-white/60 dark:border-white/10 bg-white/70 dark:bg-white/5 backdrop-blur-md p-3 sm:p-3.5 shadow-sm"
+      className="flex gap-2.5 mb-5 flex-wrap items-center rounded-2xl border border-white/60 dark:border-white/10 bg-white/70 dark:bg-white/5 backdrop-blur-md p-3 sm:p-3.5 shadow-sm"
     >
       <input
         v-model="newPass"
-        class="glass-input flex-1 min-w-[200px] py-1.5"
+        class="glass-input flex-1 min-w-[200px] py-1.5 text-sm"
         :placeholder="encrypted ? '输入新口令（留空移除加密）' : '设置口令加密整库（留空取消）'"
       />
-      <button class="glass-btn-primary px-3.5 py-1.5 text-xs sm:text-sm" @click="applyNewPass">应用</button>
-      <button v-if="encrypted" class="glass-btn flex items-center gap-1.5 px-3 py-1.5 text-xs sm:text-sm" @click="relock">
+      <button class="glass-btn-primary px-3.5 py-1.5 text-xs sm:text-sm cursor-pointer" @click="applyNewPass">应用</button>
+      <button v-if="encrypted" class="glass-btn flex items-center gap-1.5 px-3 py-1.5 text-xs sm:text-sm cursor-pointer" @click="relock">
         <UiIcon name="lock" size="13" />立即锁定
       </button>
-      <button class="glass-btn flex items-center gap-1.5 px-3 py-1.5 text-xs sm:text-sm text-red-600 dark:text-red-400 hover:border-red-500/40" @click="wipe">
+      <button class="glass-btn flex items-center gap-1.5 px-3 py-1.5 text-xs sm:text-sm text-red-600 dark:text-red-400 hover:border-red-500/40 cursor-pointer" @click="wipe">
         <UiIcon name="trash" size="13" />清空本地数据
       </button>
     </LiquidGlass>
 
     <!-- 条目网格布局 -->
-    <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3.5 sm:gap-4.5" v-if="v.ready.value">
+    <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 sm:gap-5" v-if="v.ready.value">
       <OtpCard
-        v-for="e in v.filtered.value" :key="e.id" :entry="e" :now="now"
+        v-for="e in displayList" :key="e.id" :entry="e" :now="now"
         :on-hotp-use="advanceAndSave"
         @edit="editing = $event" @delete="v.removeEntry" @toast="v.showToast" @move="(d) => v.move(e, d)"
         @qr="qrEntry = $event"
@@ -273,17 +344,18 @@ const uploadingQr = ref(false);
 
     <!-- 搜索无结果 -->
     <LiquidGlass
-      v-if="v.ready.value && v.entries.value.length > 0 && !v.filtered.value.length"
+      v-if="v.ready.value && v.entries.value.length > 0 && !displayList.length"
       variant="card"
       intensity="light"
       :interactive="false"
-      className="text-center py-10 px-4 my-3"
+      className="text-center py-12 px-4 my-4"
     >
-      <div class="w-10 h-10 rounded-2xl bg-zinc-200/50 dark:bg-zinc-800/50 flex items-center justify-center mx-auto mb-2 text-zinc-400">
-        <UiIcon name="search" size="20" />
+      <div class="w-11 h-11 rounded-2xl bg-zinc-200/50 dark:bg-zinc-800/50 flex items-center justify-center mx-auto mb-2.5 text-zinc-400">
+        <UiIcon name="search" size="22" />
       </div>
-      <p class="font-semibold text-zinc-700 dark:text-zinc-300">未找到匹配条目</p>
+      <p class="font-bold text-zinc-800 dark:text-zinc-200">未找到匹配条目</p>
       <p class="text-xs text-zinc-400 dark:text-zinc-500 mt-1">没有包含「{{ v.search.value }}」的服务或账户</p>
+      <button class="glass-btn mt-3 text-xs px-3 py-1.5" @click="v.search.value = ''">清除搜索关键词</button>
     </LiquidGlass>
 
     <!-- 本地保险库完全为空 -->
@@ -292,31 +364,32 @@ const uploadingQr = ref(false);
       variant="card"
       intensity="light"
       :interactive="false"
-      className="text-center py-14 px-4 my-4"
+      className="text-center py-16 px-4 my-4"
     >
-      <div class="w-12 h-12 rounded-2xl bg-blue-500/10 text-blue-600 dark:text-blue-400 flex items-center justify-center mx-auto mb-3 shadow-[inset_0_1px_1px_rgba(255,255,255,0.7)] dark:shadow-none">
-        <UiIcon name="shield" size="24" />
+      <div class="w-14 h-14 rounded-3xl bg-blue-500/10 text-blue-600 dark:text-blue-400 flex items-center justify-center mx-auto mb-3.5 shadow-inner">
+        <UiIcon name="shield" size="28" />
       </div>
-      <p class="font-semibold text-zinc-800 dark:text-zinc-200 mb-1">本地保险库暂无保存条目</p>
-      <p class="text-xs text-zinc-400 dark:text-zinc-500 max-w-sm mx-auto mb-5 leading-relaxed">
+      <h3 class="font-bold text-base text-zinc-900 dark:text-zinc-100 mb-1">本地保险库暂无保存条目</h3>
+      <p class="text-xs text-zinc-400 dark:text-zinc-500 max-w-sm mx-auto mb-6 leading-relaxed">
         所有数据保存在本地浏览器中，绝不上云。<br />上方可直接粘贴密钥临时算码，也可添加保存或导入已有条目。
       </p>
-      <div class="flex items-center justify-center gap-2.5 flex-wrap">
-        <button class="glass-btn-primary px-4 py-2 text-xs sm:text-sm" @click="uploadingQr = true">
+      <div class="flex items-center justify-center gap-3 flex-wrap">
+        <button class="glass-btn-primary px-4 py-2.5 text-xs sm:text-sm cursor-pointer" @click="uploadingQr = true">
           <UiIcon name="image" size="14" class="inline mr-1" />上传二维码图片
         </button>
-        <button class="glass-btn px-4 py-2 text-xs sm:text-sm" @click="editing = {}">
+        <button class="glass-btn px-4 py-2.5 text-xs sm:text-sm cursor-pointer" @click="editing = {}">
           <UiIcon name="plus" size="14" class="inline mr-1" />手动录入
         </button>
-        <button class="glass-btn px-4 py-2 text-xs sm:text-sm" @click="importing = true">
+        <button class="glass-btn px-4 py-2.5 text-xs sm:text-sm cursor-pointer" @click="importing = true">
           <UiIcon name="upload" size="14" class="inline mr-1" />从其他验证器导入
         </button>
       </div>
     </LiquidGlass>
 
     <!-- 加载状态 -->
-    <div class="text-center text-sm text-zinc-500 dark:text-zinc-400 py-16" v-if="!v.ready.value">
-      <UiIcon name="loader" size="24" class="inline-block animate-spin text-blue-600 dark:text-blue-400" />
+    <div class="text-center text-sm text-zinc-500 dark:text-zinc-400 py-20" v-if="!v.ready.value">
+      <UiIcon name="loader" size="26" class="inline-block animate-spin text-blue-600 dark:text-blue-400" />
+      <p class="text-xs text-zinc-400 mt-2 font-medium">正在加载本地数据…</p>
     </div>
   </template>
 
@@ -333,10 +406,10 @@ const uploadingQr = ref(false);
     variant="capsule"
     intensity="thick"
     :interactive="false"
-    className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 px-5 py-2.5 shadow-2xl border text-sm font-medium"
+    className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 px-5 py-2.5 shadow-2xl border text-sm font-semibold"
     :class="v.toastError.value
-      ? 'border-red-500/40 text-red-600 dark:text-red-400 bg-white/90 dark:bg-zinc-900/90'
-      : 'border-emerald-500/40 text-emerald-600 dark:text-emerald-400 bg-white/90 dark:bg-zinc-900/90'"
+      ? 'border-red-500/40 text-red-600 dark:text-red-400 bg-white/95 dark:bg-zinc-900/95'
+      : 'border-emerald-500/40 text-emerald-600 dark:text-emerald-400 bg-white/95 dark:bg-zinc-900/95'"
   >
     <span class="inline-flex items-center gap-2">
       <UiIcon :name="v.toastError.value ? 'circle-x' : 'check'" size="15" />
