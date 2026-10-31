@@ -3,6 +3,7 @@ import { ref, computed, watch } from 'vue';
 import QRCode from 'qrcode';
 import { buildOtpauthUri } from '@shared/otpauth.js';
 import UiIcon from './ui/UiIcon.vue';
+import LiquidGlass from './ui/LiquidGlass.vue';
 
 const props = defineProps({
   entry: { type: Object, required: true },
@@ -21,7 +22,7 @@ async function generate() {
   if (!uri.value) return;
   try {
     qrUrl.value = await QRCode.toDataURL(uri.value, {
-      width: 240,
+      width: 260,
       margin: 1.5,
       color: {
         dark: '#18181b',
@@ -49,55 +50,65 @@ async function copyUri() {
 </script>
 
 <template>
-  <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs" @click.self="emit('close')">
-    <div class="w-full max-w-md rounded-2xl sm:rounded-3xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-6 sm:p-7 shadow-2xl text-center">
+  <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-md overflow-y-auto" @click.self="emit('close')">
+    <LiquidGlass
+      variant="modal"
+      intensity="thick"
+      :interactive="false"
+      className="w-full max-w-md mx-auto my-auto p-6 sm:p-7 shadow-2xl border border-white/70 dark:border-white/12 text-center"
+    >
       <!-- 头部 -->
       <div class="flex items-center justify-between mb-4">
-        <div class="flex items-center gap-2 text-sm sm:text-base font-semibold text-zinc-900 dark:text-zinc-100">
-          <UiIcon name="qr-code" size="18" class="text-blue-600 dark:text-blue-400" />
+        <div class="flex items-center gap-2.5 text-sm sm:text-base font-bold text-zinc-900 dark:text-zinc-100">
+          <div class="w-8 h-8 rounded-xl bg-blue-600/15 text-blue-600 dark:text-blue-400 flex items-center justify-center shrink-0">
+            <UiIcon name="qr-code" size="18" />
+          </div>
           <span>2FA 导入二维码</span>
         </div>
-        <button class="p-1.5 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors" @click="emit('close')">
+        <button
+          class="p-1.5 text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 rounded-xl hover:bg-white/40 dark:hover:bg-white/10 transition-colors"
+          @click="emit('close')"
+        >
           <UiIcon name="x" size="16" />
         </button>
       </div>
 
-      <!-- 二维码图像卡片 -->
-      <div class="inline-flex items-center justify-center p-3 sm:p-4 rounded-2xl bg-white border border-zinc-200 dark:border-zinc-700 shadow-xs mx-auto mb-3.5">
-        <img v-if="qrUrl" :src="qrUrl" alt="2FA QR Code" class="w-56 h-56 sm:w-64 sm:h-64 select-none" />
-        <div v-else class="w-56 h-56 sm:w-64 sm:h-64 flex items-center justify-center text-zinc-400">
-          <UiIcon name="loader" size="28" class="animate-spin" />
+      <!-- 二维码图像卡片 (带有高光与微阴影) -->
+      <div class="inline-flex items-center justify-center p-3.5 sm:p-4 rounded-3xl bg-white border border-white/80 dark:border-white/20 shadow-lg mx-auto mb-4">
+        <img v-if="qrUrl" :src="qrUrl" alt="2FA QR Code" class="w-56 h-56 sm:w-60 sm:h-60 select-none rounded-xl" />
+        <div v-else class="w-56 h-56 sm:w-60 sm:h-60 flex items-center justify-center text-zinc-400">
+          <UiIcon name="loader" size="28" class="animate-spin text-blue-500" />
         </div>
       </div>
 
       <p class="text-xs text-zinc-500 dark:text-zinc-400 mb-4 leading-relaxed">
-        请使用手机 <b>Google Authenticator</b>、<b>微软验证器</b> 或 <b>微信 2FA</b> 扫描上方二维码添加。
+        使用手机 <b>Google Authenticator</b>、<b>微软验证器</b> 或 <b>微信 2FA</b> 扫描上方二维码添加。
       </p>
 
       <!-- 密钥明文与复制 -->
-      <div class="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950 p-2.5 text-left mb-4">
-        <div class="text-[11px] text-zinc-400 dark:text-zinc-500 mb-1">Base32 密钥</div>
+      <div class="rounded-2xl border border-white/60 dark:border-white/10 bg-white/50 dark:bg-zinc-950/40 backdrop-blur-sm p-3 text-left mb-4 shadow-2xs">
+        <div class="text-[11px] font-medium text-zinc-400 dark:text-zinc-500 mb-1">Base32 密钥</div>
         <div class="font-mono text-xs font-semibold text-zinc-800 dark:text-zinc-200 break-all select-all">
           {{ entry.secret }}
         </div>
       </div>
 
       <!-- 底部动作栏 -->
-      <div class="flex items-center gap-2">
+      <div class="flex items-center gap-2.5">
         <button
-          class="flex-1 flex items-center justify-center gap-1.5 rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 hover:border-blue-500 py-2 text-xs font-medium text-zinc-700 dark:text-zinc-200 transition-colors"
+          class="glass-btn flex-1 flex items-center justify-center gap-1.5 py-2.5 text-xs font-semibold"
           @click="copyUri"
         >
           <UiIcon :name="copied ? 'check' : 'copy'" size="13" />
           {{ copied ? '已复制 URI' : '复制 otpauth://' }}
         </button>
         <button
-          class="flex-1 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-medium py-2 text-xs transition-colors"
+          class="glass-btn-primary flex-1 py-2.5 text-xs font-semibold"
           @click="emit('close')"
         >
           完成
         </button>
       </div>
-    </div>
+    </LiquidGlass>
   </div>
 </template>

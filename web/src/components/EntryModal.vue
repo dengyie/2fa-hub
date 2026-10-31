@@ -4,6 +4,7 @@ import { ref, reactive } from 'vue';
 import { parseOtpauthUri, isOtpauthUri } from '@shared/otpauth.js';
 import ScannerModal from './ScannerModal.vue';
 import UiIcon from './ui/UiIcon.vue';
+import LiquidGlass from './ui/LiquidGlass.vue';
 
 const props = defineProps({
   initial: { type: Object, default: null }, // null = 新建
@@ -25,8 +26,7 @@ const error = ref('');
 const paste = ref('');
 const scanning = ref(false);
 
-const inputCls = 'w-full rounded-lg border border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-950 px-3 py-2 text-sm outline-none focus:border-blue-500 transition-colors';
-const labelCls = 'block text-xs text-zinc-500 dark:text-zinc-400 mb-1.5';
+const labelCls = 'block text-xs font-medium text-zinc-500 dark:text-zinc-400 mb-1.5';
 
 function applyUri(uri) {
   try {
@@ -64,86 +64,123 @@ function onScanned(uri) {
 </script>
 
 <template>
-  <div class="fixed inset-0 z-50 bg-black/60 flex items-start justify-center p-4 sm:p-6 overflow-y-auto" @click.self="emit('cancel')">
-    <div class="w-full max-w-lg rounded-2xl sm:rounded-3xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-6 sm:p-7 shadow-xl my-auto">
+  <div class="fixed inset-0 z-50 bg-black/50 backdrop-blur-md flex items-start justify-center p-4 sm:p-6 overflow-y-auto" @click.self="emit('cancel')">
+    <LiquidGlass
+      variant="modal"
+      intensity="thick"
+      :interactive="false"
+      className="w-full max-w-lg mx-auto my-auto p-6 sm:p-7 shadow-2xl border border-white/70 dark:border-white/12"
+    >
       <div class="flex items-center justify-between mb-5">
-        <h3 class="text-base font-semibold m-0">{{ initial ? '编辑条目' : '新增条目' }}</h3>
-        <button class="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors" @click="emit('cancel')">
+        <div class="flex items-center gap-2.5">
+          <div class="w-8 h-8 rounded-xl bg-blue-600/15 text-blue-600 dark:text-blue-400 flex items-center justify-center shrink-0">
+            <UiIcon :name="initial ? 'edit' : 'plus'" size="18" />
+          </div>
+          <h3 class="text-base font-bold text-zinc-900 dark:text-zinc-100 m-0">{{ initial ? '编辑 2FA 条目' : '新增 2FA 条目' }}</h3>
+        </div>
+        <button
+          class="p-1.5 rounded-xl text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-white/40 dark:hover:bg-white/10 transition-colors"
+          @click="emit('cancel')"
+        >
           <UiIcon name="x" size="16" />
         </button>
       </div>
 
-      <div class="mb-3.5">
+      <div class="mb-4">
         <label :class="labelCls">粘贴 otpauth:// 链接 或直接粘贴 secret</label>
         <div class="flex gap-2">
-          <input v-model="paste" placeholder="otpauth://totp/... 或 JBSWY3DPEHPK3PXP" :class="inputCls" @keydown.enter="onPaste" />
-          <button type="button" class="shrink-0 rounded-lg border border-zinc-300 dark:border-zinc-700 px-3 text-sm hover:border-blue-500 transition-colors" @click="onPaste">解析</button>
-          <button type="button" class="shrink-0 flex items-center gap-1 rounded-lg border border-zinc-300 dark:border-zinc-700 px-3 text-sm hover:border-blue-500 transition-colors" @click="scanning = true">
+          <input
+            v-model="paste"
+            placeholder="otpauth://totp/... 或 JBSWY3DPEHPK3PXP"
+            class="glass-input flex-1"
+            @keydown.enter="onPaste"
+          />
+          <button type="button" class="glass-btn px-3 text-xs sm:text-sm shrink-0" @click="onPaste">
+            解析
+          </button>
+          <button type="button" class="glass-btn flex items-center gap-1.5 px-3 text-xs sm:text-sm shrink-0" @click="scanning = true">
             <UiIcon name="scan" size="15" />扫码
           </button>
         </div>
       </div>
 
-      <div class="flex gap-2.5">
-        <div class="flex-1 mb-3.5">
+      <div class="grid sm:grid-cols-2 gap-3 mb-3.5">
+        <div>
           <label :class="labelCls">服务名（issuer）</label>
-          <input v-model="form.issuer" placeholder="如 GitHub" :class="inputCls" />
+          <input v-model="form.issuer" placeholder="如 GitHub" class="glass-input w-full" />
         </div>
-        <div class="flex-1 mb-3.5">
+        <div>
           <label :class="labelCls">账户名（label）</label>
-          <input v-model="form.label" placeholder="如 alice@example.com" :class="inputCls" />
+          <input v-model="form.label" placeholder="如 alice@example.com" class="glass-input w-full" />
         </div>
-      </div>
-      <div class="mb-3.5">
-        <label :class="labelCls"><UiIcon name="key" size="12" class="inline-block align-[-1.5px] mr-1" />Secret（Base32）</label>
-        <input v-model="form.secret" placeholder="JBSWY3DPEHPK3PXP" spellcheck="false" :class="inputCls + ' otp-font'" />
       </div>
 
-      <button class="flex items-center gap-1 text-[13px] text-blue-600 dark:text-blue-400 bg-transparent border-0 p-0" type="button" @click="advanced = !advanced">
-        <UiIcon :name="advanced ? 'chevron-down' : 'chevron-right'" size="13" />
-        {{ advanced ? '收起高级选项' : '高级选项' }}
+      <div class="mb-4">
+        <label :class="labelCls">
+          <UiIcon name="key" size="12" class="inline-block align-[-1.5px] mr-1 text-blue-500" />
+          Secret（Base32 密钥）
+        </label>
+        <input v-model="form.secret" placeholder="JBSWY3DPEHPK3PXP" spellcheck="false" class="glass-input w-full font-mono text-sm tracking-wider" />
+      </div>
+
+      <button
+        class="inline-flex items-center gap-1.5 text-xs font-semibold text-blue-600 dark:text-blue-400 hover:underline cursor-pointer bg-transparent border-0 p-0 mb-2"
+        type="button"
+        @click="advanced = !advanced"
+      >
+        <UiIcon :name="advanced ? 'chevron-down' : 'chevron-right'" size="14" />
+        {{ advanced ? '收起算法与周期高级选项' : '算法、周期与类型高级选项' }}
       </button>
-      <div v-if="advanced" class="mt-3">
-        <div class="flex gap-2.5">
-          <div class="flex-1 mb-3.5">
+
+      <div v-if="advanced" class="mb-4 p-3.5 rounded-2xl bg-white/40 dark:bg-white/5 border border-white/50 dark:border-white/10 backdrop-blur-sm space-y-3">
+        <div class="grid grid-cols-2 gap-3">
+          <div>
             <label :class="labelCls">类型</label>
-            <select v-model="form.type" :class="inputCls">
+            <select v-model="form.type" class="glass-input w-full text-xs">
               <option value="totp">TOTP（时间型）</option>
               <option value="hotp">HOTP（计数型）</option>
             </select>
           </div>
-          <div class="flex-1 mb-3.5">
+          <div>
             <label :class="labelCls">算法</label>
-            <select v-model="form.algorithm" :class="inputCls">
-              <option>SHA1</option><option>SHA256</option><option>SHA512</option>
+            <select v-model="form.algorithm" class="glass-input w-full text-xs">
+              <option>SHA1</option>
+              <option>SHA256</option>
+              <option>SHA512</option>
             </select>
           </div>
         </div>
-        <div class="flex gap-2.5">
-          <div class="flex-1 mb-3.5">
+        <div class="grid grid-cols-2 gap-3">
+          <div>
             <label :class="labelCls">位数</label>
-            <select v-model.number="form.digits" :class="inputCls">
-              <option :value="6">6</option><option :value="7">7</option>
-              <option :value="8">8</option><option :value="9">9</option><option :value="10">10</option>
+            <select v-model.number="form.digits" class="glass-input w-full text-xs">
+              <option :value="6">6 位</option>
+              <option :value="7">7 位</option>
+              <option :value="8">8 位</option>
+              <option :value="9">9 位</option>
+              <option :value="10">10 位</option>
             </select>
           </div>
-          <div class="flex-1 mb-3.5" v-if="form.type === 'totp'">
+          <div v-if="form.type === 'totp'">
             <label :class="labelCls">周期（秒）</label>
-            <input v-model.number="form.period" type="number" min="7" max="120" :class="inputCls" />
+            <input v-model.number="form.period" type="number" min="7" max="120" class="glass-input w-full text-xs" />
           </div>
-          <div class="flex-1 mb-3.5" v-else>
-            <label :class="labelCls">计数器</label>
-            <input v-model.number="form.counter" type="number" min="0" :class="inputCls" />
+          <div v-else>
+            <label :class="labelCls">计数器初始值</label>
+            <input v-model.number="form.counter" type="number" min="0" class="glass-input w-full text-xs" />
           </div>
         </div>
       </div>
 
-      <p class="text-[13px] text-red-600 dark:text-red-400 my-2" v-if="error">{{ error }}</p>
-      <div class="flex gap-2 justify-end mt-4">
-        <button class="rounded-lg border border-zinc-300 dark:border-zinc-700 px-4 py-2 text-sm hover:border-blue-500 transition-colors" @click="emit('cancel')">取消</button>
-        <button class="rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-semibold px-4 py-2 text-sm transition-colors" @click="submit">{{ initial ? '保存' : '添加' }}</button>
+      <p class="text-xs font-medium text-red-600 dark:text-red-400 my-2 px-1" v-if="error">{{ error }}</p>
+
+      <div class="flex gap-2.5 justify-end mt-5 pt-2 border-t border-white/40 dark:border-white/5">
+        <button class="glass-btn px-4 py-2 text-xs sm:text-sm font-medium" @click="emit('cancel')">取消</button>
+        <button class="glass-btn-primary px-5 py-2 text-xs sm:text-sm font-semibold" @click="submit">
+          {{ initial ? '保存更改' : '添加条目' }}
+        </button>
       </div>
-    </div>
+    </LiquidGlass>
 
     <ScannerModal v-if="scanning" @decoded="onScanned" @cancel="scanning = false" />
   </div>

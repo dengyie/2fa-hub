@@ -3,6 +3,7 @@
 import { ref, computed, watch } from 'vue';
 import { generateOtp } from '@shared/otp.js';
 import UiIcon from './ui/UiIcon.vue';
+import LiquidGlass from './ui/LiquidGlass.vue';
 
 const props = defineProps({
   entry: { type: Object, required: true },
@@ -66,12 +67,19 @@ function initials() {
 </script>
 
 <template>
-  <div class="group flex flex-col justify-between rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-4 sm:p-5 transition-all hover:border-blue-500/40 hover:shadow-md dark:hover:border-blue-500/30">
+  <LiquidGlass
+    variant="card"
+    intensity="regular"
+    :interactive="true"
+    :enableTilt="true"
+    :maxTilt="3.5"
+    className="group flex flex-col justify-between p-4 sm:p-5 h-full transition-all duration-300 hover:border-blue-500/40 dark:hover:border-blue-400/30"
+  >
     <!-- 密文损坏的条目：显式标记，只能删除（不能出码/编辑） -->
     <template v-if="entry.decrypt_error">
       <div class="flex items-start justify-between gap-3">
         <div class="flex items-center gap-3 min-w-0">
-          <div class="w-10 h-10 shrink-0 rounded-xl flex items-center justify-center bg-red-500/10 text-red-600 dark:text-red-400">
+          <div class="w-10 h-10 shrink-0 rounded-2xl flex items-center justify-center bg-red-500/10 text-red-600 dark:text-red-400 border border-red-500/20 shadow-[inset_0_1px_1px_rgba(255,255,255,0.6)] dark:shadow-none">
             <UiIcon name="circle-x" size="20" />
           </div>
           <div class="min-w-0">
@@ -79,7 +87,7 @@ function initials() {
             <div class="text-xs text-red-600 dark:text-red-400 mt-0.5">无法解密（数据损坏或密钥变更），建议删除后重新添加</div>
           </div>
         </div>
-        <button class="p-1.5 rounded-lg text-zinc-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors" title="删除" @click="emit('delete', entry)">
+        <button class="p-1.5 rounded-xl text-zinc-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors" title="删除" @click="emit('delete', entry)">
           <UiIcon name="trash" size="15" />
         </button>
       </div>
@@ -89,13 +97,13 @@ function initials() {
       <!-- 头部：图标 + 账户服务名 + 快捷工具栏 -->
       <div class="flex items-start justify-between gap-2.5 mb-3">
         <div class="flex items-center gap-3 min-w-0">
-          <div class="w-10 h-10 sm:w-11 sm:h-11 shrink-0 rounded-xl flex items-center justify-center font-bold text-sm uppercase bg-blue-600/10 text-blue-600 dark:text-blue-400 select-none">
+          <div class="w-10 h-10 sm:w-11 sm:h-11 shrink-0 rounded-2xl flex items-center justify-center font-bold text-sm uppercase bg-blue-600/10 dark:bg-blue-400/10 text-blue-600 dark:text-blue-400 border border-blue-500/20 dark:border-blue-400/20 shadow-[inset_0_1px_1px_rgba(255,255,255,0.8)] dark:shadow-[inset_0_1px_1px_rgba(255,255,255,0.1)] select-none">
             {{ initials() }}
           </div>
           <div class="min-w-0">
             <div class="text-xs text-zinc-500 dark:text-zinc-400 truncate flex items-center gap-1.5">
               <span class="truncate font-medium">{{ entry.issuer || '未命名服务' }}</span>
-              <span v-if="entry.type === 'hotp'" class="px-1.5 py-0.2 rounded text-[10px] bg-amber-500/10 text-amber-600 dark:text-amber-400 font-semibold">HOTP</span>
+              <span v-if="entry.type === 'hotp'" class="px-1.5 py-0.5 rounded-md text-[10px] bg-amber-500/15 text-amber-600 dark:text-amber-400 font-semibold border border-amber-500/20">HOTP</span>
             </div>
             <div class="text-sm sm:text-base font-semibold truncate text-zinc-900 dark:text-zinc-100 mt-0.5" :title="entry.label || entry.issuer">
               {{ entry.label || entry.issuer || '(无标签)' }}
@@ -103,39 +111,45 @@ function initials() {
           </div>
         </div>
 
-        <!-- 操作按钮（移动/扫码/编辑/删除） -->
-        <div class="flex items-center gap-0.5 opacity-80 group-hover:opacity-100 transition-opacity">
-          <button class="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors" title="上移" @click="emit('move', -1)"><UiIcon name="arrow-up" size="14" /></button>
-          <button class="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors" title="下移" @click="emit('move', 1)"><UiIcon name="arrow-down" size="14" /></button>
-          <button class="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors" title="二维码" @click="emit('qr', entry)"><UiIcon name="qr-code" size="14" /></button>
-          <button class="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors" title="编辑" @click="emit('edit', entry)"><UiIcon name="pencil" size="14" /></button>
-          <button class="p-1.5 rounded-lg text-zinc-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors" title="删除" @click="emit('delete', entry)"><UiIcon name="trash" size="14" /></button>
+        <!-- 悬浮操作胶囊栏（上移/下移/二维码/编辑/删除） -->
+        <div class="flex items-center gap-0.5 p-1 rounded-xl bg-white/40 dark:bg-white/5 border border-white/60 dark:border-white/10 backdrop-blur-sm opacity-80 group-hover:opacity-100 transition-all shadow-[inset_0_1px_1px_rgba(255,255,255,0.4)] dark:shadow-none">
+          <button class="p-1.5 rounded-lg text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100 hover:bg-white/60 dark:hover:bg-white/10 transition-colors" title="上移" @click="emit('move', -1)"><UiIcon name="arrow-up" size="13" /></button>
+          <button class="p-1.5 rounded-lg text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100 hover:bg-white/60 dark:hover:bg-white/10 transition-colors" title="下移" @click="emit('move', 1)"><UiIcon name="arrow-down" size="13" /></button>
+          <button class="p-1.5 rounded-lg text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100 hover:bg-white/60 dark:hover:bg-white/10 transition-colors" title="二维码" @click="emit('qr', entry)"><UiIcon name="qr-code" size="13" /></button>
+          <button class="p-1.5 rounded-lg text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100 hover:bg-white/60 dark:hover:bg-white/10 transition-colors" title="编辑" @click="emit('edit', entry)"><UiIcon name="pencil" size="13" /></button>
+          <button class="p-1.5 rounded-lg text-zinc-500 hover:text-red-600 dark:text-zinc-400 dark:hover:text-red-400 hover:bg-red-500/10 transition-colors" title="删除" @click="emit('delete', entry)"><UiIcon name="trash" size="13" /></button>
         </div>
       </div>
 
-      <!-- 底部：大号验证码 + 倒计时进度条 + 复制按钮 -->
-      <div class="pt-3 border-t border-zinc-100 dark:border-zinc-800/80 flex items-center justify-between gap-3">
+      <!-- 底部：大号验证码 + 倒计时进度条 + 触感复制按钮 -->
+      <div class="pt-3 border-t border-white/50 dark:border-white/10 flex items-center justify-between gap-3">
         <div>
-          <button class="otp-font text-2xl sm:text-3xl font-bold tracking-widest transition-colors hover:text-blue-600 dark:hover:text-blue-400 select-all text-left"
-                  :class="flash ? 'text-emerald-600 dark:text-emerald-400' : 'text-zinc-900 dark:text-zinc-100'"
-                  title="点击复制" @click="copy">
+          <button
+            class="otp-font text-2xl sm:text-3xl font-bold tracking-widest transition-all duration-200 select-all text-left hover:scale-[1.01]"
+            :class="flash ? 'text-emerald-600 dark:text-emerald-400 drop-shadow-[0_0_12px_rgba(16,185,129,0.3)]' : 'text-zinc-900 dark:text-zinc-100 hover:text-blue-600 dark:hover:text-blue-400'"
+            title="点击复制"
+            @click="copy"
+          >
             <span class="inline-flex gap-2">
               <span>{{ code.slice(0, Math.ceil(code.length / 2)) }}</span><span>{{ code.slice(Math.ceil(code.length / 2)) }}</span>
             </span>
           </button>
           <div class="text-[11px] text-zinc-500 dark:text-zinc-400 mt-1 flex items-center gap-2" v-if="entry.type === 'totp'">
             <span>{{ remaining }}s 后刷新</span>
-            <div class="h-1.5 w-16 rounded-full bg-zinc-100 dark:bg-zinc-800 overflow-hidden inline-block">
-              <div class="h-full rounded-full transition-all duration-1000 ease-linear"
-                   :class="progress < 25 ? 'bg-red-500' : 'bg-blue-500'"
-                   :style="{ width: progress + '%' }"></div>
+            <div class="h-1.5 w-16 sm:w-20 rounded-full bg-zinc-200/60 dark:bg-zinc-800/80 overflow-hidden inline-block p-0.5 border border-white/40 dark:border-white/5">
+              <div
+                class="h-full rounded-full transition-all duration-1000 ease-linear shadow-[0_0_6px_rgba(59,130,246,0.5)]"
+                :class="progress < 25 ? 'bg-gradient-to-r from-red-500 to-rose-400 shadow-[0_0_6px_rgba(244,63,94,0.5)]' : 'bg-gradient-to-r from-blue-500 to-indigo-500'"
+                :style="{ width: progress + '%' }"
+              />
             </div>
           </div>
           <div class="text-[11px] text-zinc-500 dark:text-zinc-400 mt-1" v-else>counter {{ entry.counter }} · 下一码 {{ nextCode }}</div>
         </div>
 
         <button
-          class="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium border border-zinc-200 dark:border-zinc-700 hover:border-blue-500 bg-zinc-50 dark:bg-zinc-800/80 text-zinc-700 dark:text-zinc-300 transition-colors shadow-2xs"
+          class="glass-btn flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-xl"
+          :class="flash ? 'border-emerald-500/50 text-emerald-600 dark:text-emerald-400 bg-emerald-50/50 dark:bg-emerald-950/30' : ''"
           @click="copy"
         >
           <UiIcon :name="flash ? 'check' : 'copy'" size="13" :class="flash ? 'text-emerald-500' : ''" />
@@ -143,5 +157,5 @@ function initials() {
         </button>
       </div>
     </template>
-  </div>
+  </LiquidGlass>
 </template>
