@@ -62,7 +62,6 @@ const timerState = computed(() => {
       glow: 'rgba(244, 63, 94, 0.65)',
       badgeClass: 'bg-rose-500/15 text-rose-600 dark:text-rose-400 border-rose-500/30 animate-pulse',
       percent: pct,
-      label: `${rem}s 即将失效`,
       isUrgent: true,
     };
   }
@@ -73,7 +72,6 @@ const timerState = computed(() => {
       glow: 'rgba(245, 158, 11, 0.55)',
       badgeClass: 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30',
       percent: pct,
-      label: `${rem}s 后刷新`,
       isUrgent: false,
     };
   }
@@ -84,7 +82,6 @@ const timerState = computed(() => {
       glow: 'rgba(59, 130, 246, 0.45)',
       badgeClass: 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20',
       percent: pct,
-      label: `${rem}s 后刷新`,
       isUrgent: false,
     };
   }
@@ -94,7 +91,6 @@ const timerState = computed(() => {
     glow: 'rgba(16, 185, 129, 0.45)',
     badgeClass: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20',
     percent: pct,
-    label: `${rem}s 后刷新`,
     isUrgent: false,
   };
 });
@@ -237,44 +233,36 @@ async function copy() {
 
       <!-- 底部：4 阶段色相演进倒计时仪表盘 / HOTP 计数器推进 -->
       <div class="mt-2 pt-2.5 border-t border-white/50 dark:border-white/5 flex items-center justify-between text-xs">
-        <!-- TOTP 倒计时展示 -->
-        <div v-if="entry.type === 'totp' && timerState" class="flex items-center gap-2">
-          <!-- 环形微型仪表盘 -->
-          <div class="relative w-6 h-6 shrink-0 flex items-center justify-center">
-            <svg class="w-full h-full -rotate-90" viewBox="0 0 28 28">
-              <circle
-                cx="14" cy="14" r="11"
-                stroke-width="2.6"
-                class="text-zinc-200/70 dark:text-zinc-800 stroke-current fill-none"
-              />
-              <circle
-                cx="14" cy="14" r="11"
-                stroke-width="2.6"
-                stroke-linecap="round"
-                class="fill-none transition-[stroke-dashoffset] duration-1000 ease-linear"
-                :style="{
-                  stroke: timerState.color,
-                  strokeDasharray: '69.115',
-                  strokeDashoffset: (69.115 * (1 - timerState.percent / 100)),
-                  filter: 'drop-shadow(0 0 3px ' + timerState.glow + ')'
-                }"
-              />
-            </svg>
-            <span
-              class="absolute text-[9px] font-mono font-bold leading-none"
-              :style="{ color: timerState.color }"
-            >
-              {{ remaining }}
-            </span>
-          </div>
-
-          <!-- 倒计时色相标签（绿/蓝/橙/红 渐进） -->
-          <span
-            class="px-2 py-0.5 rounded-full text-[11px] font-semibold border transition-all duration-500"
+        <!-- TOTP 倒计时展示：极简高效（动态微光环形规 + 唯一秒数指示） -->
+        <div v-if="entry.type === 'totp' && timerState" class="flex items-center">
+          <div
+            class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-mono font-bold border transition-all duration-500"
             :class="timerState.badgeClass"
           >
-            {{ timerState.label }}
-          </span>
+            <!-- 环形微型仪表盘 -->
+            <div class="relative w-3.5 h-3.5 shrink-0 flex items-center justify-center">
+              <svg class="w-full h-full -rotate-90" viewBox="0 0 28 28">
+                <circle
+                  cx="14" cy="14" r="11"
+                  stroke-width="3"
+                  class="text-zinc-200/60 dark:text-zinc-700/60 stroke-current fill-none"
+                />
+                <circle
+                  cx="14" cy="14" r="11"
+                  stroke-width="3"
+                  stroke-linecap="round"
+                  class="fill-none transition-[stroke-dashoffset] duration-1000 ease-linear"
+                  :style="{
+                    stroke: timerState.color,
+                    strokeDasharray: '69.115',
+                    strokeDashoffset: (69.115 * (1 - timerState.percent / 100)),
+                    filter: 'drop-shadow(0 0 2px ' + timerState.glow + ')'
+                  }"
+                />
+              </svg>
+            </div>
+            <span class="tabular-nums tracking-tight">{{ remaining }}s</span>
+          </div>
         </div>
 
         <!-- HOTP 计数器展示 -->
