@@ -195,7 +195,10 @@ async function autoCopyCode(otpCode) {
     if (!navigator?.clipboard?.writeText) return;
     await navigator.clipboard.writeText(otpCode);
     copied.value = true;
-    emit('toast', `已自动复制验证码 ${otpCode}`);
+    if (typeof navigator !== 'undefined' && navigator.vibrate) {
+      try { navigator.vibrate(20); } catch {}
+    }
+    // 静默写入剪贴板，由界面高亮与徽章承接，避免底部弹窗泄露明文
     setTimeout(() => (copied.value = false), 1800);
   } catch {}
 }
@@ -265,17 +268,36 @@ const formattedCode = computed(() => {
 
 async function copyCode() {
   if (!code.value || code.value === '······' || code.value === 'Error') return;
+  let copiedOk = false;
   try {
-    if (!navigator?.clipboard?.writeText) {
-      throw new Error('Clipboard API 不可用');
+    if (navigator?.clipboard?.writeText) {
+      await navigator.clipboard.writeText(code.value);
+      copiedOk = true;
     }
-    await navigator.clipboard.writeText(code.value);
-    copied.value = true;
-    emit('toast', '已复制验证码');
-    setTimeout(() => (copied.value = false), 1800);
-  } catch {
-    emit('toast', '复制失败，请手动选取', true);
+  } catch {}
+  if (!copiedOk) {
+    try {
+      const textarea = document.createElement('textarea');
+      textarea.value = code.value;
+      textarea.style.position = 'fixed';
+      textarea.style.opacity = '0';
+      document.body.appendChild(textarea);
+      textarea.focus();
+      textarea.select();
+      copiedOk = document.execCommand('copy');
+      document.body.removeChild(textarea);
+    } catch {}
   }
+  if (!copiedOk) {
+    emit('toast', '复制失败，请手动选取', true);
+    return;
+  }
+  if (typeof navigator !== 'undefined' && navigator.vibrate) {
+    try { navigator.vibrate(20); } catch {}
+  }
+  copied.value = true;
+  // 原位绿色动效与按钮文字变为「已复制」，无需触发全屏 Toast 造成干扰
+  setTimeout(() => (copied.value = false), 1800);
 }
 
 async function pasteFromClipboard() {

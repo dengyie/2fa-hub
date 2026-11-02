@@ -1,7 +1,7 @@
 <script setup>
 // 本地模式（游客）：条目只存本机浏览器 localStorage，绝不经过网络。
 // 可选口令加密整库（PBKDF2 + AES-GCM）。
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue';
 import { store } from '../store.js';
 import { useVault, useTicker } from '../lib/useVault.js';
 import { loadLocalVault, saveLocalVault, wipeLocalVault } from '../lib/localvault.js';
@@ -77,7 +77,79 @@ async function advanceAndSave(e) {
   await saveLocalVault(v.entries.value, passphrase);
 }
 
+const searchInputRef = ref(null);
+const exportWrapperRef = ref(null);
+const cardRefs = ref({});
+
+watch(displayList, () => {
+  cardRefs.value = {};
+});
+
+// 回车快速提取：搜索框输入时按 Enter 直接复制首个匹配项验证码
+function handleSearchEnter() {
+  if (displayList.value.length > 0) {
+    const first = displayList.value[0];
+    const comp = cardRefs.value[first.id];
+    if (comp?.copy) {
+      comp.copy();
+    }
+  }
+}
+
+function clearSearch() {
+  v.search.value = '';
+  searchInputRef.value?.focus();
+}
+
+function onSearchEsc() {
+  if (v.search.value) {
+    v.search.value = '';
+  } else {
+    searchInputRef.value?.blur();
+  }
+}
+
+function onGlobalKeydown(e) {
+  // 弹窗或锁定状态时不响应全局快捷键
+  if (locked.value || editing.value !== null || importing.value || uploadingQr.value || qrEntry.value || showLockPanel.value) {
+    return;
+  }
+  // Esc 键关闭导出菜单或清除搜索
+  if (e.key === 'Escape') {
+    if (showExport.value) {
+      showExport.value = false;
+      return;
+    }
+    if (document.activeElement === searchInputRef.value) {
+      onSearchEsc();
+      return;
+    }
+  }
+  // Cmd+K 或 Ctrl+K 或 / 快速聚焦搜索框
+  const isInput = ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName);
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+    e.preventDefault();
+    searchInputRef.value?.focus();
+    searchInputRef.value?.select();
+    return;
+  }
+  if (e.key === '/' && !isInput) {
+    e.preventDefault();
+    searchInputRef.value?.focus();
+    searchInputRef.value?.select();
+    return;
+  }
+}
+
+function onDocumentClick(e) {
+  if (showExport.value && exportWrapperRef.value && !exportWrapperRef.value.contains(e.target)) {
+    showExport.value = false;
+  }
+}
+
 onMounted(async () => {
+  window.addEventListener('keydown', onGlobalKeydown);
+  window.addEventListener('click', onDocumentClick);
   encrypted.value = localStorage.getItem('2fahub.local.vault.v1')
     ? JSON.parse(localStorage.getItem('2fahub.local.vault.v1')).enc
     : false;
@@ -86,6 +158,11 @@ onMounted(async () => {
     return;
   }
   await v.reload();
+});
+
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onGlobalKeydown);
+  window.removeEventListener('click', onDocumentClick);
 });
 
 async function unlock() {
@@ -262,20 +339,40 @@ const uploadingQr = ref(false);
 
     <!-- 悬浮操作工具栏 (Liquid Glass Toolbar) -->
     <div class="flex gap-2.5 mb-5 flex-wrap items-center">
-      <div class="relative flex-1 min-w-[180px]">
+      <div class="relative flex-1 min-w-[200px]">
         <UiIcon name="search" size="15" class="absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-400 pointer-events-none" />
         <input
+          ref="searchInputRef"
           v-model="v.search.value"
-          placeholder="搜索服务 / 账户…"
-          class="glass-input w-full pl-9 pr-8 py-2 text-sm"
+          placeholder="搜索服务 / 账户（按 / 或 ⌘K 聚焦，Enter 复制首项）…"
+          class="glass-input w-full pl-9 pr-24 py-2 text-sm"
+          @keydown.enter="handleSearchEnter"
+          @keydown.esc="onSearchEsc"
         />
-        <button
-          v-if="v.search.value"
-          class="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 p-0.5 rounded-md"
-          @click="v.search.value = ''"
-        >
-          <UiIcon name="x" size="14" />
-        </button>
+        <!-- 搜索状态与快捷键胶囊 -->
+        <div class="absolute right-2.5 top-1/2 -translate-y-1/2 flex items-center gap-1.5 pointer-events-none">
+          <span
+            v-if="v.search.value"
+            class="text-[11px] font-medium px-1.5 py-0.5 rounded-md bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20"
+          >
+            {{ displayList.length }} 项
+          </span>
+          <button
+            v-if="v.search.value"
+            type="button"
+            class="pointer-events-auto text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 p-0.5 rounded-md transition-colors cursor-pointer"
+            title="清空搜索"
+            @click="clearSearch"
+          >
+            <UiIcon name="x" size="14" />
+          </button>
+          <kbd
+            v-else
+            class="hidden sm:inline-flex items-center px-1.5 py-0.5 text-[10px] font-mono text-zinc-400 dark:text-zinc-500 bg-black/5 dark:bg-white/5 border border-zinc-200 dark:border-zinc-800 rounded shadow-2xs select-none"
+          >
+            ⌘K
+          </kbd>
+        </div>
       </div>
       <button class="glass-btn-primary flex items-center gap-1.5 px-4 py-2 text-sm cursor-pointer" @click="editing = {}">
         <UiIcon name="plus" size="15" />添加
@@ -286,7 +383,7 @@ const uploadingQr = ref(false);
       <button class="glass-btn flex items-center gap-1.5 px-3.5 py-2 text-sm cursor-pointer" @click="importing = true">
         <UiIcon name="upload" size="15" />导入
       </button>
-      <div class="relative">
+      <div class="relative" ref="exportWrapperRef">
         <button class="glass-btn flex items-center gap-1.5 px-3.5 py-2 text-sm cursor-pointer" @click="showExport = !showExport">
           <UiIcon name="download" size="15" />导出
         </button>
@@ -335,7 +432,9 @@ const uploadingQr = ref(false);
     <!-- 条目网格布局 -->
     <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 sm:gap-5" v-if="v.ready.value">
       <OtpCard
-        v-for="e in displayList" :key="e.id" :entry="e" :now="now"
+        v-for="e in displayList" :key="e.id"
+        :ref="(el) => { if (el) cardRefs[e.id] = el; }"
+        :entry="e" :now="now"
         :on-hotp-use="advanceAndSave"
         @edit="editing = $event" @delete="v.removeEntry" @toast="v.showToast" @move="(d) => v.move(e, d)"
         @qr="qrEntry = $event"

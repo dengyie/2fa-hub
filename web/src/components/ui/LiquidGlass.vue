@@ -67,6 +67,8 @@ const containerRef = ref(null);
 const glareRef = ref(null);
 
 const handlePointerMove = (e) => {
+  // 移动端触屏滚动页面时不触发 3D Tilt 倾斜和高光抖动，确保触控滑动顺畅稳定
+  if (e.pointerType === 'touch') return;
   if (!props.interactive && !props.enableTilt) return;
   const el = containerRef.value;
   if (!el) return;

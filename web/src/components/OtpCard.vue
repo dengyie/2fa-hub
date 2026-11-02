@@ -18,6 +18,7 @@ const code = ref('······');
 const remaining = ref(null);
 const nextCode = ref('');
 const flash = ref(false);
+let flashTimer = null;
 
 let lastKey = '';
 watch(
@@ -106,17 +107,43 @@ const formattedCode = computed(() => {
 });
 
 async function copy() {
+  if (!code.value || code.value.includes('·') || code.value === 'Error') return;
+  let copiedOk = false;
   try {
-    await navigator.clipboard.writeText(code.value);
-  } catch {
-    emit('toast', '复制失败（请手动选择文本复制）', true);
+    if (navigator?.clipboard?.writeText) {
+      await navigator.clipboard.writeText(code.value);
+      copiedOk = true;
+    }
+  } catch {}
+  if (!copiedOk) {
+    try {
+      const textarea = document.createElement('textarea');
+      textarea.value = code.value;
+      textarea.style.position = 'fixed';
+      textarea.style.opacity = '0';
+      document.body.appendChild(textarea);
+      textarea.focus();
+      textarea.select();
+      copiedOk = document.execCommand('copy');
+      document.body.removeChild(textarea);
+    } catch {}
+  }
+  if (!copiedOk) {
+    emit('toast', '复制失败，请手动选取', true);
     return;
   }
+  // 触感震动反馈（移动端支持时短促振动 20ms）
+  if (typeof navigator !== 'undefined' && navigator.vibrate) {
+    try { navigator.vibrate(20); } catch {}
+  }
   flash.value = true;
-  setTimeout(() => (flash.value = false), 800);
-  emit('toast', `已复制 ${code.value}`);
+  clearTimeout(flashTimer);
+  flashTimer = setTimeout(() => (flash.value = false), 1200);
+  // 注意：不再调用 emit('toast', `已复制 ${code.value}`)，避免遮挡与明文数字外显打扰
   if (props.entry.type === 'hotp' && props.onHotpUse) props.onHotpUse(props.entry);
 }
+
+defineExpose({ copy, code, entry: props.entry });
 </script>
 
 <template>
@@ -164,41 +191,46 @@ async function copy() {
             {{ brand.short }}
           </div>
           <div class="min-w-0">
-            <div class="text-xs text-zinc-500 dark:text-zinc-400 truncate flex items-center gap-1.5">
-              <span class="truncate font-semibold text-zinc-700 dark:text-zinc-300">{{ entry.issuer || '未命名服务' }}</span>
-              <span v-if="entry.type === 'hotp'" class="px-1.5 py-0.5 rounded-md text-[10px] bg-amber-500/15 text-amber-600 dark:text-amber-400 font-semibold border border-amber-500/20">HOTP</span>
+            <div class="flex items-center gap-1.5">
+              <div class="text-sm sm:text-base font-extrabold truncate text-zinc-900 dark:text-zinc-100" :title="entry.issuer || '未命名服务'">
+                {{ entry.issuer || '未命名服务' }}
+              </div>
+              <span v-if="entry.type === 'hotp'" class="shrink-0 px-1.5 py-0.5 rounded-md text-[10px] bg-amber-500/15 text-amber-600 dark:text-amber-400 font-bold border border-amber-500/20">HOTP</span>
             </div>
-            <div class="text-sm sm:text-[15px] font-bold truncate text-zinc-900 dark:text-zinc-100 mt-0.5" :title="entry.label || entry.issuer">
+            <div class="text-xs text-zinc-500 dark:text-zinc-400 truncate mt-0.5 font-medium" :title="entry.label || entry.issuer">
               {{ entry.label || '(默认主账户)' }}
             </div>
           </div>
         </div>
 
         <!-- 悬浮微型工具胶囊栏 -->
-        <div class="flex items-center gap-0.5 p-1 rounded-xl bg-black/5 dark:bg-white/5 border border-white/60 dark:border-white/10 backdrop-blur-sm opacity-70 group-hover:opacity-100 transition-all shadow-2xs">
-          <button class="p-1 rounded-lg text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 hover:bg-white/80 dark:hover:bg-white/10 transition-colors" title="上移" @click="emit('move', -1)">
-            <UiIcon name="arrow-up" size="13" />
+        <div class="flex items-center gap-0.5 p-1 rounded-xl bg-black/5 dark:bg-white/5 border border-white/60 dark:border-white/10 backdrop-blur-sm opacity-80 group-hover:opacity-100 transition-all shadow-2xs">
+          <button class="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 hover:bg-white/80 dark:hover:bg-white/10 transition-colors" title="上移" @click="emit('move', -1)">
+            <UiIcon name="arrow-up" size="14" />
           </button>
-          <button class="p-1 rounded-lg text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 hover:bg-white/80 dark:hover:bg-white/10 transition-colors" title="下移" @click="emit('move', 1)">
-            <UiIcon name="arrow-down" size="13" />
+          <button class="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 hover:bg-white/80 dark:hover:bg-white/10 transition-colors" title="下移" @click="emit('move', 1)">
+            <UiIcon name="arrow-down" size="14" />
           </button>
-          <button class="p-1 rounded-lg text-zinc-400 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-white/80 dark:hover:bg-white/10 transition-colors" title="导出二维码" @click="emit('qr', entry)">
-            <UiIcon name="qr-code" size="13" />
+          <button class="p-1.5 rounded-lg text-zinc-400 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-white/80 dark:hover:bg-white/10 transition-colors" title="导出二维码" @click="emit('qr', entry)">
+            <UiIcon name="qr-code" size="14" />
           </button>
-          <button class="p-1 rounded-lg text-zinc-400 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-white/80 dark:hover:bg-white/10 transition-colors" title="编辑条目" @click="emit('edit', entry)">
-            <UiIcon name="pencil" size="13" />
+          <button class="p-1.5 rounded-lg text-zinc-400 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-white/80 dark:hover:bg-white/10 transition-colors" title="编辑条目" @click="emit('edit', entry)">
+            <UiIcon name="pencil" size="14" />
           </button>
-          <button class="p-1 rounded-lg text-zinc-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-500/10 transition-colors" title="删除条目" @click="emit('delete', entry)">
-            <UiIcon name="trash" size="13" />
+          <button class="p-1.5 rounded-lg text-zinc-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-500/10 transition-colors" title="删除条目" @click="emit('delete', entry)">
+            <UiIcon name="trash" size="14" />
           </button>
         </div>
       </div>
 
       <!-- 核心数字展示区（交互点击整块复制） -->
       <div
-        class="my-1.5 p-3 sm:p-3.5 rounded-2xl bg-white/40 dark:bg-white/5 border border-white/60 dark:border-white/10 hover:border-blue-500/40 dark:hover:border-blue-400/30 transition-all cursor-pointer select-all group/code flex items-center justify-between shadow-2xs"
+        class="my-1.5 p-3 sm:p-3.5 rounded-2xl border transition-all duration-300 cursor-pointer select-all group/code flex items-center justify-between shadow-2xs active:scale-[0.98]"
+        :class="flash
+          ? 'bg-emerald-500/10 dark:bg-emerald-500/15 border-emerald-500/50 ring-2 ring-emerald-500/25 shadow-[0_0_20px_rgba(16,185,129,0.22)]'
+          : 'bg-white/40 dark:bg-white/5 border-white/60 dark:border-white/10 hover:border-blue-500/40 dark:hover:border-blue-400/30 hover:bg-white/60 dark:hover:bg-white/10'"
         @click="copy"
-        title="点击直接复制验证码"
+        title="点击直接复制验证码到剪贴板"
       >
         <div class="min-w-0">
           <div

@@ -74,7 +74,7 @@ function onScanned(uri) {
       <div class="flex items-center justify-between mb-5">
         <div class="flex items-center gap-2.5">
           <div class="w-8 h-8 rounded-xl bg-blue-600/15 text-blue-600 dark:text-blue-400 flex items-center justify-center shrink-0">
-            <UiIcon :name="initial ? 'edit' : 'plus'" size="18" />
+            <UiIcon :name="initial ? 'pencil' : 'plus'" size="18" />
           </div>
           <h3 class="text-base font-bold text-zinc-900 dark:text-zinc-100 m-0">{{ initial ? '编辑 2FA 条目' : '新增 2FA 条目' }}</h3>
         </div>
