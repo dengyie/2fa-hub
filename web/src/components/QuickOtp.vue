@@ -295,6 +295,12 @@ async function copyCode() {
   if (typeof navigator !== 'undefined' && navigator.vibrate) {
     try { navigator.vibrate(20); } catch {}
   }
+  // 清除任何选区并防止文本高亮
+  if (typeof window !== 'undefined' && window.getSelection) {
+    try {
+      window.getSelection()?.removeAllRanges();
+    } catch {}
+  }
   copied.value = true;
   // 原位绿色动效与按钮文字变为「已复制」，无需触发全屏 Toast 造成干扰
   setTimeout(() => (copied.value = false), 1800);
@@ -445,14 +451,15 @@ function saveToVault() {
         <!-- 验证码与元信息 -->
         <div>
           <div
-            class="otp-font text-3xl sm:text-4xl lg:text-5xl font-extrabold tracking-[0.2em] select-all cursor-pointer hover:text-blue-600 dark:hover:text-blue-400 transition-colors leading-none flex items-center gap-2"
+            class="otp-font text-3xl sm:text-4xl lg:text-5xl font-extrabold tracking-[0.2em] select-none cursor-pointer hover:text-blue-600 dark:hover:text-blue-400 transition-colors leading-none flex items-center gap-2"
             :class="copied ? 'text-emerald-600 dark:text-emerald-400 drop-shadow-[0_0_12px_rgba(16,185,129,0.35)]' : 'text-zinc-900 dark:text-zinc-100'"
             @click="copyCode"
+            @mousedown.prevent
             title="点击复制"
           >
-            <span>{{ formattedCode.first }}</span>
+            <span class="select-none">{{ formattedCode.first }}</span>
             <span v-if="formattedCode.second" class="opacity-30 font-light select-none">·</span>
-            <span v-if="formattedCode.second">{{ formattedCode.second }}</span>
+            <span v-if="formattedCode.second" class="select-none">{{ formattedCode.second }}</span>
           </div>
 
           <div class="flex items-center gap-2 text-xs sm:text-sm text-zinc-500 dark:text-zinc-400 mt-2">

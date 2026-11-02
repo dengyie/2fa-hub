@@ -136,6 +136,12 @@ async function copy() {
   if (typeof navigator !== 'undefined' && navigator.vibrate) {
     try { navigator.vibrate(20); } catch {}
   }
+  // 清除任何选区并防止文本高亮
+  if (typeof window !== 'undefined' && window.getSelection) {
+    try {
+      window.getSelection()?.removeAllRanges();
+    } catch {}
+  }
   flash.value = true;
   clearTimeout(flashTimer);
   flashTimer = setTimeout(() => (flash.value = false), 1200);
@@ -223,28 +229,29 @@ defineExpose({ copy, code, entry: props.entry });
         </div>
       </div>
 
-      <!-- 核心数字展示区（交互点击整块复制） -->
+      <!-- 核心数字展示区（交互点击整块复制，禁止原生选中文本） -->
       <div
-        class="my-1.5 p-3 sm:p-3.5 rounded-2xl border transition-all duration-300 cursor-pointer select-all group/code flex items-center justify-between shadow-2xs active:scale-[0.98]"
+        class="my-1.5 p-3 sm:p-3.5 rounded-2xl border transition-all duration-300 cursor-pointer select-none group/code flex items-center justify-between shadow-2xs active:scale-[0.98]"
         :class="flash
           ? 'bg-emerald-500/10 dark:bg-emerald-500/15 border-emerald-500/50 ring-2 ring-emerald-500/25 shadow-[0_0_20px_rgba(16,185,129,0.22)]'
           : 'bg-white/40 dark:bg-white/5 border-white/60 dark:border-white/10 hover:border-blue-500/40 dark:hover:border-blue-400/30 hover:bg-white/60 dark:hover:bg-white/10'"
         @click="copy"
+        @mousedown.prevent
         title="点击直接复制验证码到剪贴板"
       >
-        <div class="min-w-0">
+        <div class="min-w-0 select-none">
           <div
             v-if="typeof formattedCode === 'object'"
-            class="otp-font text-2xl sm:text-[32px] font-extrabold tracking-[0.2em] transition-all duration-200 leading-none flex items-center gap-2.5"
+            class="otp-font text-2xl sm:text-[32px] font-extrabold tracking-[0.2em] transition-all duration-200 leading-none flex items-center gap-2.5 select-none"
             :class="flash ? 'text-emerald-600 dark:text-emerald-400 drop-shadow-[0_0_12px_rgba(16,185,129,0.35)]' : 'text-zinc-900 dark:text-zinc-100 group-hover/code:text-blue-600 dark:group-hover/code:text-blue-400'"
           >
-            <span>{{ formattedCode.first }}</span>
+            <span class="select-none">{{ formattedCode.first }}</span>
             <span class="opacity-30 font-light select-none">·</span>
-            <span>{{ formattedCode.second }}</span>
+            <span class="select-none">{{ formattedCode.second }}</span>
           </div>
           <div
             v-else
-            class="otp-font text-2xl sm:text-[32px] font-extrabold tracking-[0.2em] transition-all duration-200 leading-none"
+            class="otp-font text-2xl sm:text-[32px] font-extrabold tracking-[0.2em] transition-all duration-200 leading-none select-none"
             :class="flash ? 'text-emerald-600 dark:text-emerald-400 drop-shadow-[0_0_12px_rgba(16,185,129,0.35)]' : 'text-zinc-900 dark:text-zinc-100 group-hover/code:text-blue-600 dark:group-hover/code:text-blue-400'"
           >
             {{ code }}
