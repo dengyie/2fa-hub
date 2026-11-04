@@ -1,5 +1,6 @@
-// 保险库列表逻辑复用：云端与本地两个视图共用同一套列表/增删改/出码逻辑
+// 保险库列表逻辑复用：云端与本地两个视图共用同一套列表/增删改/出码/回收站逻辑
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue';
+import { TRASH_RETENTION_DAYS } from '@shared/trash.js';
 
 // 服务端标准时钟漂移对齐（消除客户端时钟偏差，保证 TOTP 绝对精准）
 let serverOffsetMs = 0;
@@ -42,19 +43,26 @@ export function useTicker() {
   return now;
 }
 
-export function useVault(backend) {
+export function useVault(backend, { retentionDays = TRASH_RETENTION_DAYS } = {}) {
   const entries = ref([]);
+  const trash = ref([]);
   const search = ref('');
   const ready = ref(false);
   const toast = ref('');
   const toastError = ref(false);
+  const showTrash = ref(false);
+  const trashCount = ref(0);
+  const trashLoading = ref(false);
   let toastTimer = 0;
 
   function showToast(msg, isError = false) {
     toast.value = msg;
     toastError.value = isError;
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => (toast.value = ''), isError ? 3200 : 1600);
+    toastTimer = setTimeout(() => {
+      toast.value = '';
+      toastError.value = false;
+    }, isError ? 3200 : 1600);
   }
 
   const filtered = computed(() => {
@@ -64,8 +72,24 @@ export function useVault(backend) {
       (e.issuer + ' ' + e.label).toLowerCase().includes(q));
   });
 
+  // 打开回收站时才拉全量列表；角标数量由 backend.load() 返回，避免每次刷新多一次请求
+  async function refreshTrash() {
+    if (!backend.loadTrash) return;
+    trashLoading.value = true;
+    try {
+      trash.value = await backend.loadTrash();
+      trashCount.value = trash.value.length;
+    } catch {
+      // 回收站加载失败不阻断主库：保留上一次结果
+    } finally {
+      trashLoading.value = false;
+    }
+  }
+
   async function reload() {
-    entries.value = await backend.load();
+    const data = await backend.load();
+    entries.value = data.entries;
+    trashCount.value = data.trashCount;
     ready.value = true;
   }
 
@@ -90,11 +114,42 @@ export function useVault(backend) {
   }
 
   async function removeEntry(e) {
-    if (!confirm(`删除「${e.issuer || e.label}」？删除后无法恢复。`)) return;
-    await run(async () => {
+    const name = e.issuer || e.label;
+    if (!confirm(`删除「${name}」？条目将移入垃圾箱，${retentionDays} 天后自动彻底删除，期间可随时恢复。`)) return false;
+    return run(async () => {
       await backend.remove(e);
       await reload();
-    }, '已删除');
+    }, `已移入垃圾箱（${retentionDays} 天后彻底删除）`);
+  }
+
+  // 垃圾箱变更后：reload 只带回角标数量，若面板正开着必须重新拉全量列表，否则残留已恢复/已清除的行
+  async function afterTrashChange() {
+    await reload();
+    if (showTrash.value) await refreshTrash();
+  }
+
+  async function restoreEntry(e) {
+    return run(async () => {
+      await backend.restore(e);
+      await afterTrashChange();
+    }, '已恢复');
+  }
+
+  async function purgeEntry(e) {
+    if (!confirm(`彻底删除「${e.issuer || e.label}」？此操作无法撤销。`)) return false;
+    return run(async () => {
+      await backend.purge(e);
+      await afterTrashChange();
+    }, '已彻底删除');
+  }
+
+  async function emptyTrash() {
+    if (!trash.value.length) return false;
+    if (!confirm(`彻底删除垃圾箱中的 ${trash.value.length} 个条目？此操作无法撤销。`)) return false;
+    return run(async () => {
+      await backend.emptyTrash();
+      await afterTrashChange();
+    }, '垃圾箱已清空');
   }
 
   async function move(e, dir) {
@@ -114,5 +169,9 @@ export function useVault(backend) {
     await run(() => backend.advanceHotp(e));
   }
 
-  return { entries, filtered, search, ready, toast, toastError, showToast, run, reload, saveEntry, removeEntry, move, advanceHotp };
+  return {
+    entries, trash, trashCount, trashLoading, filtered, search, ready, toast, toastError, showTrash,
+    retentionDays, showToast, run, reload, refreshTrash,
+    saveEntry, removeEntry, restoreEntry, purgeEntry, emptyTrash, move, advanceHotp,
+  };
 }

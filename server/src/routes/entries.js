@@ -1,6 +1,8 @@
-// 条目路由：2FA 条目 CRUD + 排序 + 批量导入 + HOTP 计数器同步
+// 条目路由：2FA 条目 CRUD + 排序 + 批量导入 + HOTP 计数器同步 + 垃圾箱（软删除）
 // secret 落盘为 AES-256-GCM 密文；API 返回明文（TLS 保护下），出码在前端完成（游客/登录双模式同一套逻辑）。
-import { db, audit } from '../db.js';
+// 删除为软删除：条目进入垃圾箱（deleted_at 非空）保留 TRASH_RETENTION_DAYS 天，期间可恢复；
+// 到期由 db.js 的 cleanupTrash 彻底删除。
+import { db, audit, TRASH_RETENTION_DAYS } from '../db.js';
 import { encryptSecret, decryptSecret } from '../crypto.js';
 import { HttpError } from '../http.js';
 import { authRequired } from './auth.js';
@@ -15,6 +17,25 @@ function entryRow(e) {
     period: e.period, counter: e.counter, sort: e.sort,
     created_at: e.created_at, updated_at: e.updated_at,
     ...(e.decrypt_error ? { decrypt_error: true } : {}),
+  };
+}
+
+// 垃圾箱视图：只含元数据，绝不含 secret（回收站条目不出码）
+function trashView(row) {
+  let daysLeft = TRASH_RETENTION_DAYS;
+  let expireIso = null;
+  if (row.expire_at) {
+    const ts = Date.parse(String(row.expire_at).replace(' ', 'T') + 'Z');
+    if (Number.isFinite(ts)) {
+      daysLeft = Math.max(0, Math.ceil((ts - Date.now()) / 86400000));
+      expireIso = new Date(ts).toISOString();
+    }
+  }
+  return {
+    id: row.id, label: row.label, issuer: row.issuer,
+    type: row.type, algorithm: row.algorithm, digits: row.digits,
+    period: row.period, counter: row.counter,
+    deleted_at: row.deleted_at, expire_at: expireIso, days_left: daysLeft,
   };
 }
 
@@ -87,16 +108,32 @@ export function validateMachineEntry(body, { current = {} } = {}) {
   return { label, issuer, secret, type, algorithm, digits, period, counter };
 }
 
-function getOwnedEntry(ctx) {
-  const e = db.prepare('SELECT * FROM entries WHERE id = ? AND user_id = ?').get(Number(ctx.params.id), ctx.user.id);
+/** 启用中的条目；垃圾箱内条目对编辑/出码/计数器一律 404，不暴露其存在 */
+function getActiveEntry(ctx) {
+  const e = db.prepare('SELECT * FROM entries WHERE id = ? AND user_id = ? AND deleted_at IS NULL')
+    .get(Number(ctx.params.id), ctx.user.id);
   if (!e) throw new HttpError(404, 'entry not found');
   return e;
 }
 
+/** 垃圾箱中且仍在保留期内的条目；已过保留期的视作不存在（清理前先于查询生效） */
+function getTrashedEntry(ctx) {
+  const e = db.prepare(
+    `SELECT * FROM entries
+     WHERE id = ? AND user_id = ? AND deleted_at IS NOT NULL
+       AND deleted_at >= datetime('now', ?)`,
+  ).get(Number(ctx.params.id), ctx.user.id, `-${TRASH_RETENTION_DAYS} days`);
+  if (!e) throw new HttpError(404, 'entry not found');
+  return e;
+}
+
+const TRASH_ACTIVE_SQL = `deleted_at >= datetime('now', '-${TRASH_RETENTION_DAYS} days')`;
+
 export function registerEntryRoutes(router) {
   // 明文列表（含 secret）：登录后加载，用于前端出码；单条解密失败不拖垮整个库
   router.get('/api/entries/full', authRequired, async (ctx) => {
-    const rows = db.prepare('SELECT * FROM entries WHERE user_id = ? ORDER BY sort, id').all(ctx.user.id);
+    const rows = db.prepare('SELECT * FROM entries WHERE user_id = ? AND deleted_at IS NULL ORDER BY sort, id')
+      .all(ctx.user.id);
     const entries = rows.map((e) => {
       try {
         return entryRow({ ...e, secret_plain: decryptEntry(e) });
@@ -106,12 +143,37 @@ export function registerEntryRoutes(router) {
         return entryRow({ ...e, secret_plain: null, decrypt_error: true });
       }
     });
-    ctx.json(200, { entries });
+    // 历史垃圾箱条目（超过保留期、尚未被定时清理）不计入
+    const trashCount = db.prepare(
+      'SELECT COUNT(*) AS n FROM entries WHERE user_id = ? AND deleted_at IS NOT NULL AND deleted_at >= datetime(\'now\', ?)',
+    ).get(ctx.user.id, `-${TRASH_RETENTION_DAYS} days`).n;
+    ctx.json(200, { entries, trash_count: trashCount });
+  });
+
+  // 垃圾箱列表：仅元数据，不含 secret（回收站条目不出码）
+  router.get('/api/entries/trash', authRequired, async (ctx) => {
+    const rows = db.prepare(
+      `SELECT id, label, issuer, type, algorithm, digits, period, counter, deleted_at,
+              datetime(deleted_at, '+${TRASH_RETENTION_DAYS} days') AS expire_at
+       FROM entries
+       WHERE user_id = ? AND ${TRASH_ACTIVE_SQL}
+       ORDER BY deleted_at DESC, id DESC`,
+    ).all(ctx.user.id);
+    ctx.json(200, { entries: rows.map(trashView), retention_days: TRASH_RETENTION_DAYS });
+  });
+
+  // 清空回收站：彻底删除该用户垃圾箱内全部条目
+  router.delete('/api/entries/trash', authRequired, async (ctx) => {
+    const result = db.prepare('DELETE FROM entries WHERE user_id = ? AND deleted_at IS NOT NULL')
+      .run(ctx.user.id);
+    audit(ctx.user.id, 'trash_empty', `count=${result.changes}`, ctx.ip, ctx.ua);
+    ctx.json(200, { ok: true, purged: result.changes });
   });
 
   router.post('/api/entries', authRequired, async (ctx) => {
     const v = validateEntry(ctx.body || {});
-    const maxSort = db.prepare('SELECT COALESCE(MAX(sort), 0) AS m FROM entries WHERE user_id = ?').get(ctx.user.id).m;
+    const maxSort = db.prepare('SELECT COALESCE(MAX(sort), 0) AS m FROM entries WHERE user_id = ? AND deleted_at IS NULL')
+      .get(ctx.user.id).m;
     const info = db.prepare(
       `INSERT INTO entries (user_id, label, issuer, secret, type, algorithm, digits, period, counter, sort)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -121,7 +183,7 @@ export function registerEntryRoutes(router) {
   });
 
   router.put('/api/entries/:id', authRequired, async (ctx) => {
-    const e = getOwnedEntry(ctx);
+    const e = getActiveEntry(ctx);
     const v = validateEntry({ ...e, ...ctx.body, secret: ctx.body?.secret ?? decryptEntry(e) });
     db.prepare(
       `UPDATE entries SET label = ?, issuer = ?, secret = ?, type = ?, algorithm = ?,
@@ -130,10 +192,29 @@ export function registerEntryRoutes(router) {
     ctx.json(200, { ok: true });
   });
 
+  // 删除 = 移入垃圾箱（保留 TRASH_RETENTION_DAYS 天，可恢复）；到期由 cleanupTrash 彻底删除
   router.delete('/api/entries/:id', authRequired, async (ctx) => {
-    const e = getOwnedEntry(ctx);
-    db.prepare('DELETE FROM entries WHERE id = ?').run(e.id);
+    const e = getActiveEntry(ctx);
+    db.prepare("UPDATE entries SET deleted_at = datetime('now'), updated_at = datetime('now') WHERE id = ?")
+      .run(e.id);
     audit(ctx.user.id, 'entry_delete', `id=${e.id}`, ctx.ip, ctx.ua);
+    ctx.json(200, { ok: true });
+  });
+
+  // 从垃圾箱恢复：清除 deleted_at（sort 保留原值）
+  router.post('/api/entries/:id/restore', authRequired, async (ctx) => {
+    const e = getTrashedEntry(ctx);
+    db.prepare("UPDATE entries SET deleted_at = NULL, updated_at = datetime('now') WHERE id = ?")
+      .run(e.id);
+    audit(ctx.user.id, 'entry_restore', `id=${e.id}`, ctx.ip, ctx.ua);
+    ctx.json(200, { ok: true });
+  });
+
+  // 从垃圾箱彻底删除（不可恢复）
+  router.delete('/api/entries/:id/purge', authRequired, async (ctx) => {
+    const e = getTrashedEntry(ctx);
+    db.prepare('DELETE FROM entries WHERE id = ?').run(e.id);
+    audit(ctx.user.id, 'entry_purge', `id=${e.id}`, ctx.ip, ctx.ua);
     ctx.json(200, { ok: true });
   });
 
@@ -141,7 +222,8 @@ export function registerEntryRoutes(router) {
     const list = Array.isArray(ctx.body?.entries) ? ctx.body.entries : [];
     if (!list.length) throw new HttpError(400, 'empty entries');
     if (list.length > 1000) throw new HttpError(400, 'too many entries (max 1000)');
-    const maxSort = db.prepare('SELECT COALESCE(MAX(sort), 0) AS m FROM entries WHERE user_id = ?').get(ctx.user.id).m;
+    const maxSort = db.prepare('SELECT COALESCE(MAX(sort), 0) AS m FROM entries WHERE user_id = ? AND deleted_at IS NULL')
+      .get(ctx.user.id).m;
     const insert = db.prepare(
       `INSERT INTO entries (user_id, label, issuer, secret, type, algorithm, digits, period, counter, sort)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -166,7 +248,7 @@ export function registerEntryRoutes(router) {
   router.put('/api/entries-order', authRequired, async (ctx) => {
     const ids = Array.isArray(ctx.body?.ids) ? ctx.body.ids.map(Number) : [];
     if (!ids.length || ids.some((n) => !Number.isInteger(n))) throw new HttpError(400, 'valid ids array required');
-    const upd = db.prepare('UPDATE entries SET sort = ? WHERE id = ? AND user_id = ?');
+    const upd = db.prepare('UPDATE entries SET sort = ? WHERE id = ? AND user_id = ? AND deleted_at IS NULL');
     db.exec('BEGIN');
     try {
       ids.forEach((id, i) => upd.run(i + 1, id, ctx.user.id));
@@ -180,7 +262,7 @@ export function registerEntryRoutes(router) {
 
   // HOTP 计数器前进（出码即自增，多端同步）
   router.post('/api/entries/:id/counter', authRequired, async (ctx) => {
-    const e = getOwnedEntry(ctx);
+    const e = getActiveEntry(ctx);
     const next = Math.max(Number(ctx.body?.counter) || 0, e.counter + 1);
     db.prepare('UPDATE entries SET counter = ?, updated_at = datetime(\'now\') WHERE id = ?').run(next, e.id);
     ctx.json(200, { counter: next });

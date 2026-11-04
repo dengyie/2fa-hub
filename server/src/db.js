@@ -1,5 +1,8 @@
 import { DatabaseSync } from 'node:sqlite';
 import { config } from './config.js';
+import { TRASH_RETENTION_DAYS } from '../../shared/trash.js';
+
+export { TRASH_RETENTION_DAYS };
 
 export const db = new DatabaseSync(config.dbFile);
 db.exec('PRAGMA journal_mode = WAL;');
@@ -28,6 +31,7 @@ CREATE TABLE IF NOT EXISTS entries (
   period     INTEGER NOT NULL DEFAULT 30,
   counter    INTEGER NOT NULL DEFAULT 0,
   sort       INTEGER NOT NULL DEFAULT 0,
+  deleted_at TEXT,                      -- NULL = 启用；非空 = 在回收站（保留 14 天后彻底删除）
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -59,6 +63,40 @@ CREATE TABLE IF NOT EXISTS settings (
   value TEXT NOT NULL
 );
 `);
+
+// 回收站清理间隔只是节流：保留期截止判断始终按 deleted_at 精确到时刻，不依赖本间隔——
+// 即使进程长时间未运行/未触发清理，超过 14 天的条目也绝不会再被列出或恢复。
+export const TRASH_PURGE_INTERVAL_MS = 3600_000; // 1h
+
+function migrate() {
+  const columns = db.prepare('PRAGMA table_info(entries)').all().map((c) => c.name);
+  if (columns.includes('deleted_at')) return;
+  // 旧库升级：一次性加列并回填（无历史回收站数据，存量条目均为已启用）
+  db.exec('BEGIN');
+  try {
+    db.exec('ALTER TABLE entries ADD COLUMN deleted_at TEXT');
+    db.exec('COMMIT');
+  } catch (err) {
+    try { db.exec('ROLLBACK'); } catch (rollbackError) { err.rollbackError = rollbackError; }
+    throw err;
+  }
+}
+migrate();
+db.exec('CREATE INDEX IF NOT EXISTS idx_entries_trash ON entries(user_id, deleted_at)');
+
+/** 彻底删除回收站中超过保留期的条目；启动时同步执行一次，之后每小时兜底。 */
+export function cleanupTrash() {
+  return Number(db.prepare(
+    `DELETE FROM entries WHERE deleted_at IS NOT NULL
+       AND deleted_at < datetime('now', ?)`,
+  ).run(`-${TRASH_RETENTION_DAYS} days`).changes);
+}
+
+export function scheduleTrashCleanup() {
+  cleanupTrash();
+  const timer = setInterval(cleanupTrash, TRASH_PURGE_INTERVAL_MS);
+  timer.unref(); // 不阻止进程退出
+}
 
 // 审计日志保留期：启动时清理 90 天前的记录，并每 24h 定时清理（长驻进程表不能无限增长）
 export function cleanupAudit() {

@@ -3,6 +3,7 @@
 import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue';
 import { store, api } from '../store.js';
 import { useVault, useTicker } from '../lib/useVault.js';
+import { activeEntries } from '@shared/trash.js';
 import { loadLocalVault, wipeLocalVault } from '../lib/localvault.js';
 import { export2FaHubJson, exportOtpauthTxt, download } from '../lib/formats.js';
 import OtpCard from '../components/OtpCard.vue';
@@ -13,17 +14,30 @@ import QrModal from '../components/QrModal.vue';
 import UiIcon from '../components/ui/UiIcon.vue';
 import ApiKeyPanel from '../components/ApiKeyPanel.vue';
 import LiquidGlass from '../components/ui/LiquidGlass.vue';
+import TrashPanel from '../components/TrashPanel.vue';
 
 const now = useTicker();
 const backend = {
-  async load() { return (await api('/api/entries/full')).entries; },
+  async load() {
+    const data = await api('/api/entries/full');
+    return { entries: data.entries, trashCount: data.trash_count };
+  },
+  async loadTrash() { return (await api('/api/entries/trash')).entries; },
   async add(e) { await api('/api/entries', { method: 'POST', body: e }); },
   async update(e) { await api(`/api/entries/${e.id}`, { method: 'PUT', body: e }); },
   async remove(e) { await api(`/api/entries/${e.id}`, { method: 'DELETE' }); },
+  async restore(e) { await api(`/api/entries/${e.id}/restore`, { method: 'POST', body: {} }); },
+  async purge(e) { await api(`/api/entries/${e.id}/purge`, { method: 'DELETE' }); },
+  async emptyTrash() { await api('/api/entries/trash', { method: 'DELETE' }); },
   async reorder(list) { await api('/api/entries-order', { method: 'PUT', body: { ids: list.map((e) => e.id) } }); },
   async advanceHotp(e) { await api(`/api/entries/${e.id}/counter`, { method: 'POST', body: {} }); },
 };
 const v = useVault(backend);
+
+function openTrash() {
+  v.showTrash.value = true;
+  v.refreshTrash();
+}
 
 const editing = ref(null);   // null=关闭, {}=新建, entry=编辑
 const qrEntry = ref(null);
@@ -81,8 +95,13 @@ function onSearchEsc() {
 }
 
 function onGlobalKeydown(e) {
+  // Esc 优先关闭回收站面板（面板打开时其余快捷键一律不响应）
+  if (e.key === 'Escape' && v.showTrash.value) {
+    v.showTrash.value = false;
+    return;
+  }
   // 弹窗打开时不响应全局快捷键
-  if (editing.value !== null || importing.value || uploadingQr.value || qrEntry.value) {
+  if (editing.value !== null || importing.value || uploadingQr.value || qrEntry.value || v.showTrash.value) {
     return;
   }
   // Esc 键关闭导出菜单或清除搜索
@@ -130,9 +149,11 @@ onMounted(async () => {
     const isMigrated = localStorage.getItem('2fahub.local.migrated');
     if (!isDismissed && !isMigrated) {
       const local = await loadLocalVault();
-      if (!local.encrypted && local.entries?.length > 0) {
-        localEntries.value = local.entries;
-        localCount.value = local.entries.length;
+      // 只迁移活跃条目：deleted_at 非空的是本地回收站条目，不得复活到云端
+      const active = activeEntries(local.entries);
+      if (!local.encrypted && active.length > 0) {
+        localEntries.value = active;
+        localCount.value = active.length;
         showMigrateBanner.value = true;
       }
     }
@@ -302,7 +323,16 @@ function doExport(kind) {
       <UiIcon name="plus" size="15" />添加密钥
     </button>
 
-    <!-- 二维码上传识别 -->
+    <!-- 回收站：删除条目默认进入这里，保留 14 天可恢复 -->
+    <button class="glass-btn relative flex items-center gap-1.5 px-3.5 py-2 text-sm cursor-pointer" title="回收站" @click="openTrash">
+      <UiIcon name="trash" size="15" />回收站
+        <span
+          v-if="v.trashCount.value"
+          class="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-red-500/15 text-red-600 dark:text-red-400 text-[10px] font-bold border border-red-500/20"
+        >{{ v.trashCount.value }}</span>
+    </button>
+
+    <!-- 二维码识别 -->
     <button class="glass-btn flex items-center gap-1.5 px-3.5 py-2 text-sm cursor-pointer" @click="uploadingQr = true">
       <UiIcon name="image" size="15" />扫码上传
     </button>
@@ -405,6 +435,18 @@ function doExport(kind) {
   <ImportModal v-if="importing" @import="doImport" @cancel="importing = false" />
   <UploadQrModal v-if="uploadingQr" @save="uploadingQr = false; v.saveEntry($event)" @cancel="uploadingQr = false" />
   <QrModal v-if="qrEntry" :entry="qrEntry" @close="qrEntry = null" @toast="v.showToast" />
+
+  <!-- 回收站面板 -->
+  <TrashPanel
+    v-if="v.showTrash.value"
+    :entries="v.trash.value"
+    :loading="v.trashLoading.value"
+    :retentionDays="v.retentionDays"
+    @close="v.showTrash.value = false"
+    @restore="v.restoreEntry"
+    @purge="v.purgeEntry"
+    @empty="v.emptyTrash"
+  />
 
   <!-- 浮动 Liquid Glass Toast 提示 -->
   <LiquidGlass

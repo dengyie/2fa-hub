@@ -14,6 +14,8 @@ import QuickOtp from '../components/QuickOtp.vue';
 import QrModal from '../components/QrModal.vue';
 import UiIcon from '../components/ui/UiIcon.vue';
 import LiquidGlass from '../components/ui/LiquidGlass.vue';
+import TrashPanel from '../components/TrashPanel.vue';
+import { TRASH_RETENTION_DAYS, activeEntries } from '@shared/trash.js';
 
 const now = useTicker();
 
@@ -26,28 +28,87 @@ const newPass = ref('');
 const showLockPanel = ref(false);
 const activeFilter = ref('all');
 
+// 垃圾箱（本地模式）：条目在本地数组中用 deleted_at 标记软删除，保留期内可恢复，到期本地自动清除
+const TRASH_MS = TRASH_RETENTION_DAYS * 86400_000;
+
+function isExpired(x) {
+  if (!x.deleted_at) return false;
+  const ts = Date.parse(x.deleted_at);
+  return Number.isFinite(ts) && ts + TRASH_MS <= Date.now();
+}
+
+function trashDaysLeft(deletedAt) {
+  const ts = Date.parse(deletedAt);
+  if (!Number.isFinite(ts)) return TRASH_RETENTION_DAYS;
+  return Math.max(0, Math.ceil((ts + TRASH_MS - Date.now()) / 86400_000));
+}
+
+// 读整库（含垃圾箱）并顺手清理已过期条目，避免过期数据长期滞留
+async function readAll() {
+  const { entries, encrypted: enc } = await loadLocalVault(passphrase);
+  encrypted.value = enc;
+  const kept = entries.filter((x) => !isExpired(x));
+  if (kept.length !== entries.length) await saveLocalVault(kept, passphrase);
+  return kept;
+}
+
+function trashList(all) {
+  return all
+    .filter((x) => x.deleted_at)
+    .sort((a, b) => Date.parse(b.deleted_at) - Date.parse(a.deleted_at))
+    .map((x) => ({ ...x, days_left: trashDaysLeft(x.deleted_at) }));
+}
+
 const backend = {
   async load() {
-    const { entries, encrypted: enc } = await loadLocalVault(passphrase);
-    encrypted.value = enc;
-    return entries;
+    const all = await readAll();
+    const entries = activeEntries(all);
+    return { entries, trashCount: all.length - entries.length };
+  },
+  async loadTrash() {
+    return trashList(await readAll());
   },
   async add(e) {
-    const { entries } = await loadLocalVault(passphrase);
-    entries.push({ ...e, id: Date.now() });
-    await saveLocalVault(entries, passphrase);
+    const all = await readAll();
+    all.push({ ...e, id: Date.now() });
+    await saveLocalVault(all, passphrase);
   },
   async update(e) {
-    const { entries } = await loadLocalVault(passphrase);
-    const i = entries.findIndex((x) => x.id === e.id);
-    if (i >= 0) entries[i] = { ...entries[i], ...e };
-    await saveLocalVault(entries, passphrase);
+    const all = await readAll();
+    const i = all.findIndex((x) => x.id === e.id);
+    if (i >= 0) all[i] = { ...all[i], ...e };
+    await saveLocalVault(all, passphrase);
   },
+  // 删除 = 软删除（移入垃圾箱）；保留期内可通过回收站面板恢复
   async remove(e) {
-    const { entries } = await loadLocalVault(passphrase);
-    await saveLocalVault(entries.filter((x) => x.id !== e.id), passphrase);
+    const all = await readAll();
+    const i = all.findIndex((x) => x.id === e.id);
+    if (i >= 0) all[i] = { ...all[i], deleted_at: new Date().toISOString() };
+    await saveLocalVault(all, passphrase);
   },
-  async reorder(list) { await saveLocalVault(list, passphrase); },
+  async restore(e) {
+    const all = await readAll();
+    const i = all.findIndex((x) => x.id === e.id);
+    if (i >= 0) {
+      const row = { ...all[i] };
+      delete row.deleted_at;
+      all[i] = row;
+    }
+    await saveLocalVault(all, passphrase);
+  },
+  async purge(e) {
+    const all = await readAll();
+    await saveLocalVault(all.filter((x) => x.id !== e.id), passphrase);
+  },
+  async emptyTrash() {
+    const all = await readAll();
+    await saveLocalVault(all.filter((x) => !x.deleted_at), passphrase);
+  },
+  // 排序只作用于活跃条目，但必须带上垃圾箱条目一起落盘，否则回收站会被清空
+  async reorder(list) {
+    const all = await readAll();
+    await saveLocalVault([...list, ...all.filter((x) => x.deleted_at)], passphrase);
+  },
   async advanceHotp() { /* 本地模式下 counter 直接在内存条目上推进，save 时落盘 */ },
 };
 
@@ -71,10 +132,18 @@ async function handleQuickSave(e) {
   await v.saveEntry(e);
 }
 
-// HOTP 出码后推进本地计数器并持久化
+function openTrash() {
+  v.showTrash.value = true;
+  v.refreshTrash();
+}
+
+// HOTP 出码后推进本地计数器并持久化（带上垃圾箱条目，避免覆盖丢失）
 async function advanceAndSave(e) {
   await backend.advanceHotp(e);
-  await saveLocalVault(v.entries.value, passphrase);
+  const all = await readAll();
+  const row = all.find((x) => x.id === e.id);
+  if (row) row.counter = e.counter;
+  await saveLocalVault(all, passphrase);
 }
 
 const searchInputRef = ref(null);
@@ -110,8 +179,13 @@ function onSearchEsc() {
 }
 
 function onGlobalKeydown(e) {
+  // Esc 优先关闭回收站面板（面板打开时其余快捷键一律不响应）
+  if (e.key === 'Escape' && v.showTrash.value) {
+    v.showTrash.value = false;
+    return;
+  }
   // 弹窗或锁定状态时不响应全局快捷键
-  if (locked.value || editing.value !== null || importing.value || uploadingQr.value || qrEntry.value || showLockPanel.value) {
+  if (locked.value || editing.value !== null || importing.value || uploadingQr.value || qrEntry.value || showLockPanel.value || v.showTrash.value) {
     return;
   }
   // Esc 键关闭导出菜单或清除搜索
@@ -183,7 +257,9 @@ async function relock() {
 }
 
 async function applyNewPass() {
-  await saveLocalVault(v.entries.value, newPass.value || null);
+  // 读整库再落盘：换口令时不能把回收站条目丢掉
+  const all = await readAll();
+  await saveLocalVault(all, newPass.value || null);
   if (newPass.value) {
     passphrase = newPass.value;
     sessionStorage.setItem('2fahub.local.unlock', passphrase);
@@ -383,6 +459,13 @@ const uploadingQr = ref(false);
       <button class="glass-btn flex items-center gap-1.5 px-3.5 py-2 text-sm cursor-pointer" @click="importing = true">
         <UiIcon name="upload" size="15" />导入
       </button>
+      <button class="glass-btn relative flex items-center gap-1.5 px-3.5 py-2 text-sm cursor-pointer" title="回收站" @click="openTrash">
+        <UiIcon name="trash" size="15" />回收站
+        <span
+          v-if="v.trashCount.value"
+          class="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-red-500/15 text-red-600 dark:text-red-400 text-[10px] font-bold border border-red-500/20"
+        >{{ v.trashCount.value }}</span>
+      </button>
       <div class="relative" ref="exportWrapperRef">
         <button class="glass-btn flex items-center gap-1.5 px-3.5 py-2 text-sm cursor-pointer" @click="showExport = !showExport">
           <UiIcon name="download" size="15" />导出
@@ -498,6 +581,18 @@ const uploadingQr = ref(false);
   <ImportModal v-if="importing" @import="doImport" @cancel="importing = false" />
   <UploadQrModal v-if="uploadingQr" @save="uploadingQr = false; v.saveEntry($event)" @cancel="uploadingQr = false" />
   <QrModal v-if="qrEntry" :entry="qrEntry" @close="qrEntry = null" @toast="v.showToast" />
+
+  <!-- 回收站面板（本地模式下过期条目在读取时自动清除） -->
+  <TrashPanel
+    v-if="v.showTrash.value"
+    :entries="v.trash.value"
+    :loading="v.trashLoading.value"
+    :retentionDays="v.retentionDays"
+    @close="v.showTrash.value = false"
+    @restore="v.restoreEntry"
+    @purge="v.purgeEntry"
+    @empty="v.emptyTrash"
+  />
 
   <!-- 浮动 Liquid Glass Toast 提示 -->
   <LiquidGlass

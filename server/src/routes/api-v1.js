@@ -34,7 +34,7 @@ function entryAllowed(ctx, id) {
 function getEntry(ctx) {
   const id = Number(ctx.params.id);
   if (!Number.isSafeInteger(id) || id <= 0 || !entryAllowed(ctx, id)) throw new HttpError(404, 'entry not found');
-  const row = db.prepare('SELECT * FROM entries WHERE id = ? AND user_id = ?').get(id, ctx.apiKey.userId);
+  const row = db.prepare('SELECT * FROM entries WHERE id = ? AND user_id = ? AND deleted_at IS NULL').get(id, ctx.apiKey.userId);
   if (!row) throw new HttpError(404, 'entry not found');
   return row;
 }
@@ -90,6 +90,11 @@ function requireTier(ctx, scope) {
 
 async function respondWithTotp(ctx, row) {
   const generated = await generateOtp({ ...row, secret: decryptEntry(row) });
+  // 生成是异步的：await 期间条目可能已被软删除，删除必须立即生效
+  const stillActive = db.prepare(
+    'SELECT 1 FROM entries WHERE id = ? AND user_id = ? AND deleted_at IS NULL',
+  ).get(row.id, ctx.apiKey.userId);
+  if (!stillActive) throw new HttpError(404, 'entry not found');
   audit(ctx.apiKey.userId, 'api_code', `key=${ctx.apiKey.id} entry=${row.id} type=totp`, ctx.ip, ctx.ua);
   ctx.json(200, { code: generated.code, remaining: generated.remaining, type: 'totp' });
 }
@@ -124,7 +129,8 @@ async function codeHandler(ctx) {
       if (!activeKey) throw new HttpError(401, 'invalid API key');
       const result = db.prepare(
         `UPDATE entries SET counter = counter + 1, updated_at = datetime('now')
-         WHERE id = ? AND user_id = ? AND counter = ? AND secret = ? AND type = ?
+         WHERE id = ? AND user_id = ? AND deleted_at IS NULL
+           AND counter = ? AND secret = ? AND type = ?
            AND algorithm = ? AND digits = ? AND period = ?`,
       ).run(row.id, ctx.apiKey.userId, row.counter, row.secret, row.type,
         row.algorithm, row.digits, row.period);
@@ -145,10 +151,10 @@ export function registerApiV1Routes(router) {
     requireTier(ctx, 'entries:read');
     let rows;
     if (ctx.apiKey.entryIds === null) {
-      rows = db.prepare('SELECT * FROM entries WHERE user_id = ? ORDER BY sort, id').all(ctx.apiKey.userId);
+      rows = db.prepare('SELECT * FROM entries WHERE user_id = ? AND deleted_at IS NULL ORDER BY sort, id').all(ctx.apiKey.userId);
     } else if (ctx.apiKey.entryIds.length) {
       const placeholders = ctx.apiKey.entryIds.map(() => '?').join(',');
-      rows = db.prepare(`SELECT * FROM entries WHERE user_id = ? AND id IN (${placeholders}) ORDER BY sort, id`)
+      rows = db.prepare(`SELECT * FROM entries WHERE user_id = ? AND deleted_at IS NULL AND id IN (${placeholders}) ORDER BY sort, id`)
         .all(ctx.apiKey.userId, ...ctx.apiKey.entryIds);
     } else {
       rows = [];
@@ -169,7 +175,7 @@ export function registerApiV1Routes(router) {
     const value = validateMachineEntry(ctx.body);
     const encryptedSecret = encryptSecret(value.secret);
     const entryId = transaction(() => {
-      const maxSort = db.prepare('SELECT COALESCE(MAX(sort), 0) AS m FROM entries WHERE user_id = ?')
+      const maxSort = db.prepare('SELECT COALESCE(MAX(sort), 0) AS m FROM entries WHERE user_id = ? AND deleted_at IS NULL')
         .get(ctx.apiKey.userId).m;
       const result = db.prepare(
         `INSERT INTO entries (user_id, label, issuer, secret, type, algorithm, digits, period, counter, sort)
@@ -220,7 +226,8 @@ export function registerApiV1Routes(router) {
     requireTier(ctx, 'entries:delete');
     transaction(() => {
       const row = getEntry(ctx);
-      db.prepare('DELETE FROM entries WHERE id = ? AND user_id = ?').run(row.id, ctx.apiKey.userId);
+      db.prepare('UPDATE entries SET deleted_at = datetime(\'now\') WHERE id = ? AND user_id = ?')
+        .run(row.id, ctx.apiKey.userId);
       audit(ctx.apiKey.userId, 'api_entry_delete', `key=${ctx.apiKey.id} entry=${row.id}`, ctx.ip, ctx.ua);
     });
     ctx.json(200, { ok: true });

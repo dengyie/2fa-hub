@@ -10,7 +10,8 @@ process.env.COOKIE_SECURE = '0';
 process.env.PORT = '0';
 
 const { config } = await import('../src/config.js');
-const { db } = await import('../src/db.js');
+const { db, cleanupTrash } = await import('../src/db.js');
+const { activeEntries } = await import('../../shared/trash.js');
 const { createAppServer } = await import('../src/http.js');
 const { Router } = await import('../src/http.js');
 const { registerAuthRoutes, userCount } = await import('../src/routes/auth.js');
@@ -654,6 +655,128 @@ test('Machine API enforces owner state, CORS preflight, and active-key cap', asy
     db.prepare('UPDATE users SET is_active = 1 WHERE id = ?').run(row.user_id);
     db.prepare("UPDATE api_keys SET revoked_at = datetime('now') WHERE user_id = ? AND revoked_at IS NULL").run(row.user_id);
   }
+});
+
+test('deleted entries go to trash: restore within 14 days, expired entries are purged', async () => {
+  const user = client();
+  await user.req('POST', '/api/auth/login', { email: 'user@test.io', password: 'newpassword99' });
+  const mk = await user.req('POST', '/api/entries', { issuer: 'TrashCo', label: 'trash', secret: 'JBSWY3DPEHPK3PXP' });
+  const id = mk.json.id;
+
+  // 删除 = 软删除：活跃列表消失，但落盘行仍在（垃圾箱）
+  const trashSoFar = db.prepare(
+    "SELECT COUNT(*) AS n FROM entries WHERE deleted_at IS NOT NULL AND deleted_at >= datetime('now', '-14 days')",
+  ).get().n;
+  assert.equal((await user.req('DELETE', `/api/entries/${id}`)).status, 200);
+  let full = await user.req('GET', '/api/entries/full');
+  assert.equal(full.json.entries.some((e) => e.id === id), false);
+  assert.equal(full.json.trash_count, trashSoFar + 1);
+  assert.ok(db.prepare('SELECT id FROM entries WHERE id = ?').get(id));
+
+  // 垃圾箱可见，默认保留 14 天，且不返回 secret
+  let trash = await user.req('GET', '/api/entries/trash');
+  assert.equal(trash.json.retention_days, 14);
+  const item = trash.json.entries.find((e) => e.id === id);
+  assert.ok(item);
+  assert.equal(Object.hasOwn(item, 'secret'), false);
+  assert.equal(item.days_left, 14);
+
+  // 垃圾箱条目不可编辑/出码；Machine API 也看不到
+  assert.equal((await user.req('PUT', `/api/entries/${id}`, { label: 'nope' })).status, 404);
+  const key = await user.req('POST', '/api/keys', { name: 'trash-read', tier: 'read', entry_ids: null });
+  const machine = await fetch(base + '/api/v1/entries', { headers: { Authorization: `Bearer ${key.json.value}` } });
+  assert.equal((await machine.json()).entries.some((e) => e.id === id), false);
+  await user.req('DELETE', `/api/keys/${key.json.key.id}`);
+
+  // 恢复：回到活跃列表且可继续出码
+  assert.equal((await user.req('POST', `/api/entries/${id}/restore`)).status, 200);
+  full = await user.req('GET', '/api/entries/full');
+  assert.ok(full.json.entries.some((e) => e.id === id));
+  assert.equal(full.json.trash_count, trashSoFar);
+  assert.equal((await user.req('PUT', `/api/entries/${id}`, { label: 'restored' })).status, 200);
+
+  // 再次删除后可彻底删除（不可重复操作）
+  await user.req('DELETE', `/api/entries/${id}`);
+  assert.equal((await user.req('DELETE', `/api/entries/${id}/purge`)).status, 200);
+  assert.equal(db.prepare('SELECT id FROM entries WHERE id = ?').get(id), undefined);
+  assert.equal((await user.req('DELETE', `/api/entries/${id}/purge`)).status, 404);
+
+  // 超过 14 天的条目：查询时即视为不存在（即使定时清理尚未跑到）
+  const old = await user.req('POST', '/api/entries', { issuer: 'Old', secret: 'JBSWY3DPEHPK3PXP' });
+  await user.req('DELETE', `/api/entries/${old.json.id}`);
+  db.prepare("UPDATE entries SET deleted_at = datetime('now', '-15 days') WHERE id = ?").run(old.json.id);
+  trash = await user.req('GET', '/api/entries/trash');
+  assert.equal(trash.json.entries.some((e) => e.id === old.json.id), false);
+  assert.ok(db.prepare('SELECT id FROM entries WHERE id = ?').get(old.json.id), 'expired row waits for cleanup, not listed');
+
+  // 清空回收站：彻底删除该用户全部垃圾箱条目
+  await user.req('DELETE', `/api/entries/${old.json.id}/purge`);
+  const a = await user.req('POST', '/api/entries', { issuer: 'A2', secret: 'JBSWY3DPEHPK3PXP' });
+  const b = await user.req('POST', '/api/entries', { issuer: 'B2', secret: 'JBSWY3DPEHPK3PXQ' });
+  await user.req('DELETE', `/api/entries/${a.json.id}`);
+  await user.req('DELETE', `/api/entries/${b.json.id}`);
+  const emptied = await user.req('DELETE', '/api/entries/trash');
+  assert.equal(emptied.status, 200);
+  assert.ok(emptied.json.purged >= 2);
+  assert.equal((await user.req('GET', '/api/entries/trash')).json.entries.length, 0);
+});
+
+test('trash isolation, expired entries, code exclusion, cleanup and migration filtering', async () => {
+  // 迁移候选：垃圾箱条目（无论是否在保留期内）不得进入本地→云端迁移
+  const candidates = activeEntries([
+    { id: 1, label: 'keep' },
+    { id: 2, label: 'trashed', deleted_at: new Date().toISOString() },
+    { id: 3, label: 'expired', deleted_at: new Date(Date.now() - 15 * 86400_000).toISOString() },
+    null,
+  ]);
+  assert.deepEqual(candidates.map((e) => e.id), [1]);
+
+  const user = client();
+  await user.req('POST', '/api/auth/login', { email: 'user@test.io', password: 'newpassword99' });
+  const admin = client();
+  await admin.req('POST', '/api/auth/login', { email: 'admin@test.io', password: 'password123' });
+
+  // 跨用户隔离：admin 不能列出/恢复/彻底删除 user 的垃圾箱条目
+  const mine = await user.req('POST', '/api/entries', { issuer: 'Iso', secret: 'JBSWY3DPEHPK3PXP' });
+  const mineId = mine.json.id;
+  assert.equal((await user.req('DELETE', `/api/entries/${mineId}`)).status, 200);
+  const adminTrash = await admin.req('GET', '/api/entries/trash');
+  assert.equal(adminTrash.json.entries.some((e) => e.id === mineId), false);
+  assert.equal((await admin.req('POST', `/api/entries/${mineId}/restore`)).status, 404);
+  assert.equal((await admin.req('DELETE', `/api/entries/${mineId}/purge`)).status, 404);
+  assert.ok(db.prepare('SELECT id FROM entries WHERE id = ?').get(mineId), 'other user must not purge it');
+  assert.equal((await user.req('POST', `/api/entries/${mineId}/restore`)).status, 200);
+
+  // 活跃条目不能走恢复/彻底删除（垃圾箱端点不能绕过状态检查）
+  assert.equal((await user.req('POST', `/api/entries/${mineId}/restore`)).status, 404);
+  assert.equal((await user.req('DELETE', `/api/entries/${mineId}/purge`)).status, 404);
+
+  // 垃圾箱条目立即从 Machine API 元数据与出码端点消失
+  const key = await user.req('POST', '/api/keys', { name: 'iso-read', tier: 'read', entry_ids: [mineId] });
+  assert.equal(key.status, 201);
+  await user.req('DELETE', `/api/entries/${mineId}`);
+  const headers = { Authorization: `Bearer ${key.json.value}` };
+  assert.equal((await fetch(base + `/api/v1/entries/${mineId}`, { headers })).status, 404);
+  assert.equal((await fetch(base + `/api/v1/entries/${mineId}/code`, { headers })).status, 404);
+  await user.req('DELETE', `/api/keys/${key.json.key.id}`);
+
+  // 超过保留期：列表/恢复/单独彻底删除一律 404（即使定时清理尚未执行）
+  const old = await user.req('POST', '/api/entries', { issuer: 'Expired', secret: 'JBSWY3DPEHPK3PXP' });
+  await user.req('DELETE', `/api/entries/${old.json.id}`);
+  db.prepare("UPDATE entries SET deleted_at = datetime('now', '-15 days') WHERE id = ?").run(old.json.id);
+  assert.equal((await user.req('POST', `/api/entries/${old.json.id}/restore`)).status, 404);
+  assert.equal((await user.req('DELETE', `/api/entries/${old.json.id}/purge`)).status, 404);
+
+  // cleanupTrash 真正删除到期行，且不误删保留期内条目
+  const keep = await user.req('POST', '/api/entries', { issuer: 'Keep', secret: 'JBSWY3DPEHPK3PXP' });
+  await user.req('DELETE', `/api/entries/${keep.json.id}`);
+  cleanupTrash();
+  assert.equal(db.prepare('SELECT id FROM entries WHERE id = ?').get(old.json.id), undefined);
+  assert.ok(db.prepare('SELECT id FROM entries WHERE id = ?').get(keep.json.id), 'fresh trash row survives cleanup');
+  assert.ok(db.prepare('SELECT id FROM entries WHERE id = ?').get(mineId), 'active entry survives cleanup');
+
+  // 收尾：清空本用例的垃圾箱数据
+  await user.req('DELETE', '/api/entries/trash');
 });
 
 test.after(() => {

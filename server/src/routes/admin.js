@@ -10,7 +10,7 @@ function adminUserView(u) {
   return {
     id: u.id, email: u.email, name: u.name, is_admin: !!u.is_admin, is_active: !!u.is_active,
     created_at: u.created_at,
-    entries: db.prepare('SELECT COUNT(*) AS n FROM entries WHERE user_id = ?').get(u.id).n,
+    entries: db.prepare('SELECT COUNT(*) AS n FROM entries WHERE user_id = ? AND deleted_at IS NULL').get(u.id).n,
   };
 }
 

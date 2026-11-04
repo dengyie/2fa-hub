@@ -5,9 +5,10 @@ import { registerEntryRoutes } from './routes/entries.js';
 import { registerAdminRoutes } from './routes/admin.js';
 import { registerApiKeyRoutes } from './routes/api-keys.js';
 import { registerApiV1Routes } from './routes/api-v1.js';
-import { scheduleAuditCleanup } from './db.js';
+import { scheduleAuditCleanup, scheduleTrashCleanup } from './db.js';
 
 scheduleAuditCleanup();
+scheduleTrashCleanup();
 
 const router = new Router();
 router.get('/api/health', async (ctx) => ctx.json(200, { ok: true }));

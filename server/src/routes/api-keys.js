@@ -56,7 +56,7 @@ export function registerApiKeyRoutes(router) {
       entryIds = [...new Set(body.entry_ids.map(Number))];
       if (entryIds.length) {
         const placeholders = entryIds.map(() => '?').join(',');
-        const owned = db.prepare(`SELECT id FROM entries WHERE user_id = ? AND id IN (${placeholders})`)
+        const owned = db.prepare(`SELECT id FROM entries WHERE user_id = ? AND deleted_at IS NULL AND id IN (${placeholders})`)
           .all(ctx.user.id, ...entryIds).map((row) => row.id);
         if (owned.length !== entryIds.length) throw new HttpError(400, 'entry_ids contains an unknown entry');
       }

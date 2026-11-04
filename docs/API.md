@@ -66,7 +66,7 @@ Requires `entries:update`. Accepts any non-empty subset of the fields above; omi
 
 ### `DELETE /api/v1/entries/:id`
 
-Requires `entries:delete`. Returns `{"ok":true}`. Deletion cannot be undone.
+Requires `entries:delete`. Returns `{"ok":true}`. The entry is moved to the trash and kept for 14 days; it is excluded from every `v1` listing and code endpoint immediately, and is permanently removed when the retention period expires.
 
 ## Creating a key in the UI
 

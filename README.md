@@ -29,6 +29,7 @@ Most open-source authenticators force a choice: either everything lives in someo
 - TOTP / HOTP with SHA1/SHA256/SHA512, 6–10 digits, custom period & counter — **implementation verified against the official RFC 4226 / RFC 6238 test vectors**
 - **Agent Machine API** with scoped API keys for one-time-code retrieval, metadata read access, and entry CRUD; saved secrets are never returned by API v1
 - Live codes with countdown, one-tap copy, multi-device HOTP counter sync
+- **Trash** — deleted entries go to a 14-day recycle bin and can be restored from the UI; expired entries are permanently removed by a server-side cleanup task and can never be listed or restored after the deadline. Same behavior in cloud and local mode
 - Add entries by camera QR scan, QR image upload, pasting an `otpauth://` link, or manually
 - Import: **2FAS, Aegis (plaintext), Google Authenticator otpauth links, 2fa-hub JSON**
 - Export: JSON (with secrets) or otpauth URI list — your data leaves whenever you want, zero lock-in
